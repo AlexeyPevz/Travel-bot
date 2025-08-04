@@ -1,173 +1,208 @@
 version: '3.8'
 
-# Monitoring stack for production
-# Usage: docker-compose -f docker-compose.yml -f docker-compose.monitoring.yml up
-
 services:
-  # Prometheus for metrics collection
+  # Prometheus - Time series database for metrics
   prometheus:
     image: prom/prometheus:latest
+    container_name: prometheus
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
       - '--storage.tsdb.path=/prometheus'
-      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
-      - '--web.console.templates=/usr/share/prometheus/consoles'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
       - '--web.enable-lifecycle'
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+      - ./monitoring/alerts:/etc/prometheus/alerts
+      - prometheus_data:/prometheus
     ports:
       - "9090:9090"
-    volumes:
-      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
-      - prometheus_data:/prometheus
     networks:
       - monitoring
-    deploy:
-      resources:
-        limits:
-          cpus: '0.5'
-          memory: 512M
+      - app_network
     restart: unless-stopped
 
-  # Grafana for visualization
+  # Grafana - Metrics visualization
   grafana:
     image: grafana/grafana:latest
-    ports:
-      - "3000:3000"
+    container_name: grafana
     environment:
-      - GF_SECURITY_ADMIN_USER=admin
-      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin}
       - GF_USERS_ALLOW_SIGN_UP=false
-      - GF_INSTALL_PLUGINS=redis-datasource
+      - GF_INSTALL_PLUGINS=grafana-clock-panel,grafana-simple-json-datasource,alexanderzobnin-zabbix-app
     volumes:
       - grafana_data:/var/lib/grafana
-      - ./grafana/provisioning:/etc/grafana/provisioning
-      - ./grafana/dashboards:/var/lib/grafana/dashboards
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards
+    ports:
+      - "3001:3000"
     networks:
       - monitoring
-    deploy:
-      resources:
-        limits:
-          cpus: '0.5'
-          memory: 512M
+    restart: unless-stopped
+    depends_on:
+      - prometheus
+
+  # AlertManager - Alert routing and management
+  alertmanager:
+    image: prom/alertmanager:latest
+    container_name: alertmanager
+    command:
+      - '--config.file=/etc/alertmanager/config.yml'
+      - '--storage.path=/alertmanager'
+    volumes:
+      - ./monitoring/alertmanager.yml:/etc/alertmanager/config.yml
+      - alertmanager_data:/alertmanager
+    ports:
+      - "9093:9093"
+    networks:
+      - monitoring
     restart: unless-stopped
 
-  # Node Exporter for system metrics
+  # Node Exporter - System metrics
   node-exporter:
     image: prom/node-exporter:latest
-    ports:
-      - "9100:9100"
+    container_name: node-exporter
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.rootfs=/rootfs'
+      - '--path.sysfs=/host/sys'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
     volumes:
       - /proc:/host/proc:ro
       - /sys:/host/sys:ro
       - /:/rootfs:ro
-    command:
-      - '--path.procfs=/host/proc'
-      - '--path.sysfs=/host/sys'
-      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+    ports:
+      - "9100:9100"
     networks:
       - monitoring
-    deploy:
-      resources:
-        limits:
-          cpus: '0.25'
-          memory: 128M
     restart: unless-stopped
+
+  # PostgreSQL Exporter
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:latest
+    container_name: postgres-exporter
+    environment:
+      DATA_SOURCE_NAME: "postgresql://${DB_USER}:${DB_PASSWORD}@postgres:5432/${DB_NAME}?sslmode=disable"
+    ports:
+      - "9187:9187"
+    networks:
+      - monitoring
+      - app_network
+    restart: unless-stopped
+    depends_on:
+      - postgres
 
   # Redis Exporter
   redis-exporter:
     image: oliver006/redis_exporter:latest
-    ports:
-      - "9121:9121"
+    container_name: redis-exporter
     environment:
       REDIS_ADDR: "redis:6379"
-      REDIS_PASSWORD: "redis123"
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+    ports:
+      - "9121:9121"
     networks:
       - monitoring
-      - default
-    deploy:
-      resources:
-        limits:
-          cpus: '0.25'
-          memory: 128M
+      - app_network
     restart: unless-stopped
+    depends_on:
+      - redis
 
-  # Postgres Exporter
-  postgres-exporter:
-    image: prometheuscommunity/postgres-exporter:latest
-    ports:
-      - "9187:9187"
-    environment:
-      DATA_SOURCE_NAME: "postgresql://tourtinder:tourtinder123@postgres:5432/tourtinder?sslmode=disable"
-    networks:
-      - monitoring
-      - default
-    deploy:
-      resources:
-        limits:
-          cpus: '0.25'
-          memory: 128M
-    restart: unless-stopped
-
-  # Alert Manager
-  alertmanager:
-    image: prom/alertmanager:latest
-    ports:
-      - "9093:9093"
-    volumes:
-      - ./alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
-      - alertmanager_data:/alertmanager
+  # Nginx Exporter
+  nginx-exporter:
+    image: nginx/nginx-prometheus-exporter:latest
+    container_name: nginx-exporter
     command:
-      - '--config.file=/etc/alertmanager/alertmanager.yml'
-      - '--storage.path=/alertmanager'
+      - '-nginx.scrape-uri=http://nginx:8080/stub_status'
+    ports:
+      - "9113:9113"
     networks:
       - monitoring
-    deploy:
-      resources:
-        limits:
-          cpus: '0.25'
-          memory: 256M
+      - app_network
+    restart: unless-stopped
+    depends_on:
+      - nginx
+
+  # cAdvisor - Container metrics
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:latest
+    container_name: cadvisor
+    privileged: true
+    devices:
+      - /dev/kmsg:/dev/kmsg
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker:/var/lib/docker:ro
+      - /cgroup:/cgroup:ro
+    ports:
+      - "8080:8080"
+    networks:
+      - monitoring
     restart: unless-stopped
 
-  # Loki for log aggregation
+  # Loki - Log aggregation
   loki:
     image: grafana/loki:latest
+    container_name: loki
     ports:
       - "3100:3100"
-    volumes:
-      - ./loki-config.yml:/etc/loki/local-config.yaml:ro
-      - loki_data:/loki
     command: -config.file=/etc/loki/local-config.yaml
+    volumes:
+      - ./monitoring/loki/config.yml:/etc/loki/local-config.yaml
+      - loki_data:/loki
     networks:
       - monitoring
-    deploy:
-      resources:
-        limits:
-          cpus: '0.5'
-          memory: 512M
+      - app_network
     restart: unless-stopped
 
-  # Promtail for log collection
+  # Promtail - Log collector
   promtail:
     image: grafana/promtail:latest
+    container_name: promtail
     volumes:
-      - ./promtail-config.yml:/etc/promtail/config.yml:ro
       - /var/log:/var/log:ro
-      - ./logs:/app/logs:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - ./monitoring/promtail/config.yml:/etc/promtail/config.yml
     command: -config.file=/etc/promtail/config.yml
     networks:
       - monitoring
-    deploy:
-      resources:
-        limits:
-          cpus: '0.25'
-          memory: 256M
+      - app_network
     restart: unless-stopped
+    depends_on:
+      - loki
+
+  # Jaeger - Distributed tracing
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    container_name: jaeger
+    environment:
+      - COLLECTOR_ZIPKIN_HOST_PORT=:9411
+    ports:
+      - "5775:5775/udp"
+      - "6831:6831/udp"
+      - "6832:6832/udp"
+      - "5778:5778"
+      - "16686:16686"
+      - "14268:14268"
+      - "14250:14250"
+      - "9411:9411"
+    networks:
+      - monitoring
+      - app_network
+    restart: unless-stopped
+
+networks:
+  monitoring:
+    driver: bridge
+  app_network:
+    external: true
+    name: travelbot_default
 
 volumes:
   prometheus_data:
   grafana_data:
   alertmanager_data:
   loki_data:
-
-networks:
-  monitoring:
-    driver: bridge

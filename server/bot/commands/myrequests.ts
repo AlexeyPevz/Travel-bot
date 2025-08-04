@@ -9,7 +9,7 @@ export class MyRequestsCommand extends BaseCommand {
   description = 'Просмотреть ваши сохраненные запросы';
   usage = '/myrequests';
 
-  async execute(ctx: CommandContext): Promise<void> {
+  protected async executeCommand(ctx: CommandContext): Promise<void> {
     const { bot, chatId, userId } = ctx;
 
     try {

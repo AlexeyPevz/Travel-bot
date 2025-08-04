@@ -1,0 +1,176 @@
+groups:
+  - name: infrastructure
+    interval: 30s
+    rules:
+      # Service Down
+      - alert: ServiceDown
+        expr: up{job=~"travel-bot|postgresql|redis|nginx"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          team: devops
+        annotations:
+          summary: "{{ $labels.job }} is down"
+          description: "{{ $labels.instance }} has been down for more than 2 minutes"
+          
+      # High CPU Usage
+      - alert: HighCPUUsage
+        expr: |
+          (
+            100 - (avg by (instance) (irate(node_cpu_seconds_total{mode="idle"}[5m])) * 100)
+          ) > 80
+        for: 10m
+        labels:
+          severity: warning
+          team: devops
+        annotations:
+          summary: "High CPU usage on {{ $labels.instance }}"
+          description: "CPU usage is {{ $value }}%"
+          
+      # Critical CPU Usage
+      - alert: CriticalCPUUsage
+        expr: |
+          (
+            100 - (avg by (instance) (irate(node_cpu_seconds_total{mode="idle"}[5m])) * 100)
+          ) > 95
+        for: 5m
+        labels:
+          severity: critical
+          team: devops
+        annotations:
+          summary: "Critical CPU usage on {{ $labels.instance }}"
+          description: "CPU usage is {{ $value }}%"
+          
+      # High Memory Usage
+      - alert: HighMemoryUsage
+        expr: |
+          (
+            100 * (1 - ((node_memory_MemAvailable_bytes or node_memory_MemFree_bytes) / node_memory_MemTotal_bytes))
+          ) > 85
+        for: 10m
+        labels:
+          severity: warning
+          team: devops
+        annotations:
+          summary: "High memory usage on {{ $labels.instance }}"
+          description: "Memory usage is {{ $value }}%"
+          
+      # Critical Memory Usage
+      - alert: CriticalMemoryUsage
+        expr: |
+          (
+            100 * (1 - ((node_memory_MemAvailable_bytes or node_memory_MemFree_bytes) / node_memory_MemTotal_bytes))
+          ) > 95
+        for: 5m
+        labels:
+          severity: critical
+          team: devops
+        annotations:
+          summary: "Critical memory usage on {{ $labels.instance }}"
+          description: "Memory usage is {{ $value }}%"
+          
+      # Disk Space Warning
+      - alert: DiskSpaceWarning
+        expr: |
+          (
+            100 - (node_filesystem_avail_bytes{fstype!~"tmpfs|fuse.lxcfs|squashfs"} * 100 / node_filesystem_size_bytes)
+          ) > 80
+        for: 10m
+        labels:
+          severity: warning
+          team: devops
+        annotations:
+          summary: "Low disk space on {{ $labels.instance }}"
+          description: "Disk usage is {{ $value }}% on {{ $labels.device }}"
+          
+      # Disk Space Critical
+      - alert: DiskSpaceCritical
+        expr: |
+          (
+            100 - (node_filesystem_avail_bytes{fstype!~"tmpfs|fuse.lxcfs|squashfs"} * 100 / node_filesystem_size_bytes)
+          ) > 90
+        for: 5m
+        labels:
+          severity: critical
+          team: devops
+        annotations:
+          summary: "Critical disk space on {{ $labels.instance }}"
+          description: "Disk usage is {{ $value }}% on {{ $labels.device }}"
+          
+      # Database Connection Pool Exhaustion
+      - alert: DatabaseConnectionPoolExhaustion
+        expr: |
+          (
+            sum(travelbot_db_connection_pool{state="active"}) by (instance)
+            /
+            sum(travelbot_db_connection_pool) by (instance)
+          ) > 0.9
+        for: 5m
+        labels:
+          severity: warning
+          team: backend
+        annotations:
+          summary: "Database connection pool near exhaustion"
+          description: "{{ $value | humanizePercentage }} of connections are active"
+          
+      # Long Running Database Queries
+      - alert: LongRunningDatabaseQueries
+        expr: |
+          histogram_quantile(0.95,
+            sum(rate(travelbot_db_query_duration_seconds_bucket[5m])) by (operation, le)
+          ) > 5
+        for: 10m
+        labels:
+          severity: warning
+          team: backend
+        annotations:
+          summary: "Long running database queries for {{ $labels.operation }}"
+          description: "95th percentile query time is {{ $value }}s"
+          
+      # Redis Memory Usage
+      - alert: RedisHighMemoryUsage
+        expr: |
+          redis_memory_used_bytes / redis_memory_max_bytes > 0.85
+        for: 10m
+        labels:
+          severity: warning
+          team: devops
+        annotations:
+          summary: "Redis memory usage is high"
+          description: "Redis is using {{ $value | humanizePercentage }} of max memory"
+          
+      # Redis Connection Errors
+      - alert: RedisConnectionErrors
+        expr: |
+          rate(redis_rejected_connections_total[5m]) > 0
+        for: 5m
+        labels:
+          severity: warning
+          team: devops
+        annotations:
+          summary: "Redis rejecting connections"
+          description: "Redis rejected {{ $value }} connections per second"
+          
+      # Container Restart
+      - alert: ContainerRestart
+        expr: |
+          increase(container_restart_count[1h]) > 2
+        for: 5m
+        labels:
+          severity: warning
+          team: devops
+        annotations:
+          summary: "Container {{ $labels.name }} restarting frequently"
+          description: "Container restarted {{ $value }} times in the last hour"
+          
+      # High Network Traffic
+      - alert: HighNetworkTraffic
+        expr: |
+          sum(rate(node_network_receive_bytes_total[5m])) by (instance) > 100000000
+        for: 10m
+        labels:
+          severity: warning
+          team: devops
+        annotations:
+          summary: "High network traffic on {{ $labels.instance }}"
+          description: "Network receive rate is {{ $value | humanize }}B/s"

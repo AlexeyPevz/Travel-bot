@@ -3,6 +3,7 @@ import { db } from '../../../db';
 import { profiles } from '@shared/schema';
 import { eq } from 'drizzle-orm';
 import logger from '../../utils/logger';
+import { botCommandDuration, trackBotCommand, trackAsyncOperation } from '../../monitoring/metrics';
 
 /**
  * Базовый интерфейс для контекста команды
@@ -36,7 +37,32 @@ export abstract class BaseCommand implements ICommand {
   usage?: string;
   aliases?: string[];
 
-  abstract execute(ctx: CommandContext): Promise<void>;
+  /**
+   * Выполнить команду с отслеживанием метрик
+   */
+  async execute(ctx: CommandContext): Promise<void> {
+    const { chatId } = ctx;
+    const chatType = chatId > 0 ? 'private' : chatId < -1000000000000 ? 'supergroup' : 'group';
+    
+    try {
+      await trackAsyncOperation(
+        botCommandDuration,
+        { command: this.name, status: 'pending' },
+        async () => {
+          await this.executeCommand(ctx);
+          trackBotCommand(this.name, chatType, true);
+        }
+      );
+    } catch (error) {
+      trackBotCommand(this.name, chatType, false);
+      throw error;
+    }
+  }
+
+  /**
+   * Абстрактный метод для реализации логики команды
+   */
+  protected abstract executeCommand(ctx: CommandContext): Promise<void>;
 
   /**
    * Получить профиль пользователя

@@ -1,0 +1,182 @@
+groups:
+  - name: application
+    interval: 30s
+    rules:
+      # High Error Rate
+      - alert: HighErrorRate
+        expr: |
+          (
+            sum(rate(travelbot_errors_total[5m])) by (source)
+            /
+            sum(rate(travelbot_http_requests_total[5m]))
+          ) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+          team: backend
+        annotations:
+          summary: "High error rate detected"
+          description: "Error rate is {{ $value | humanizePercentage }} for {{ $labels.source }}"
+          
+      # Critical Error Rate
+      - alert: CriticalErrorRate
+        expr: |
+          (
+            sum(rate(travelbot_errors_total{severity="critical"}[5m]))
+            /
+            sum(rate(travelbot_http_requests_total[5m]))
+          ) > 0.01
+        for: 2m
+        labels:
+          severity: critical
+          team: backend
+        annotations:
+          summary: "Critical errors detected"
+          description: "Critical error rate is {{ $value | humanizePercentage }}"
+          
+      # Unhandled Exceptions
+      - alert: UnhandledExceptions
+        expr: increase(travelbot_unhandled_exceptions_total[5m]) > 0
+        for: 1m
+        labels:
+          severity: critical
+          team: backend
+        annotations:
+          summary: "Unhandled exceptions detected"
+          description: "{{ $value }} unhandled exceptions in the last 5 minutes"
+          
+      # High Response Time
+      - alert: HighResponseTime
+        expr: |
+          histogram_quantile(0.95,
+            sum(rate(travelbot_http_request_duration_seconds_bucket[5m])) by (route, le)
+          ) > 3
+        for: 5m
+        labels:
+          severity: warning
+          team: backend
+        annotations:
+          summary: "High response time on {{ $labels.route }}"
+          description: "95th percentile response time is {{ $value }}s"
+          
+      # AI Provider Failures
+      - alert: AIProviderFailures
+        expr: |
+          (
+            sum(rate(travelbot_ai_requests_total{status="error"}[5m])) by (provider)
+            /
+            sum(rate(travelbot_ai_requests_total[5m])) by (provider)
+          ) > 0.3
+        for: 5m
+        labels:
+          severity: warning
+          team: ai
+        annotations:
+          summary: "High failure rate for AI provider {{ $labels.provider }}"
+          description: "Failure rate is {{ $value | humanizePercentage }}"
+          
+      # All AI Providers Down
+      - alert: AllAIProvidersDown
+        expr: |
+          sum(up{job="travel-bot"}) > 0 and
+          sum(rate(travelbot_ai_requests_total{status="success"}[5m])) == 0 and
+          sum(rate(travelbot_ai_requests_total[5m])) > 0.1
+        for: 2m
+        labels:
+          severity: critical
+          team: ai
+        annotations:
+          summary: "All AI providers are failing"
+          description: "No successful AI requests in the last 5 minutes"
+          
+      # High AI Token Usage
+      - alert: HighAITokenUsage
+        expr: |
+          sum(increase(travelbot_ai_tokens_used_total[1h])) by (provider) > 50000
+        for: 5m
+        labels:
+          severity: warning
+          team: ai
+        annotations:
+          summary: "High AI token usage for {{ $labels.provider }}"
+          description: "Used {{ $value }} tokens in the last hour"
+          
+      # Tour Search Failures
+      - alert: TourSearchFailures
+        expr: |
+          (
+            sum(rate(travelbot_tour_searches_total{status="error"}[5m]))
+            /
+            sum(rate(travelbot_tour_searches_total[5m]))
+          ) > 0.2
+        for: 5m
+        labels:
+          severity: warning
+          team: backend
+        annotations:
+          summary: "High tour search failure rate"
+          description: "Tour search failure rate is {{ $value | humanizePercentage }}"
+          
+      # Low Cache Hit Rate
+      - alert: LowCacheHitRate
+        expr: |
+          avg(travelbot_cache_hit_rate{quantile="0.5"}) by (operation) < 0.5
+        for: 10m
+        labels:
+          severity: warning
+          team: backend
+        annotations:
+          summary: "Low cache hit rate for {{ $labels.operation }}"
+          description: "Cache hit rate is {{ $value | humanizePercentage }}"
+          
+      # Queue Backlog
+      - alert: QueueBacklog
+        expr: |
+          sum(travelbot_queue_size{state="waiting"}) by (queue) > 1000
+        for: 10m
+        labels:
+          severity: warning
+          team: backend
+        annotations:
+          summary: "Large queue backlog in {{ $labels.queue }}"
+          description: "{{ $value }} jobs waiting in queue"
+          
+      # Failed Queue Jobs
+      - alert: FailedQueueJobs
+        expr: |
+          sum(increase(travelbot_queue_jobs_total{status="failed"}[1h])) by (queue) > 10
+        for: 5m
+        labels:
+          severity: warning
+          team: backend
+        annotations:
+          summary: "High number of failed jobs in {{ $labels.queue }}"
+          description: "{{ $value }} jobs failed in the last hour"
+          
+      # Rate Limit Exhaustion
+      - alert: RateLimitExhaustion
+        expr: |
+          (
+            sum(rate(travelbot_rate_limit_hits_total[5m])) by (endpoint)
+            /
+            sum(rate(travelbot_http_requests_total[5m]))
+          ) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+          team: backend
+        annotations:
+          summary: "High rate limit hits on {{ $labels.endpoint }}"
+          description: "{{ $value | humanizePercentage }} of requests are rate limited"
+          
+      # JWT Token Failures
+      - alert: JWTTokenFailures
+        expr: |
+          sum(rate(travelbot_jwt_tokens_refreshed_total{status="error"}[5m])) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+          team: security
+        annotations:
+          summary: "JWT token refresh failures"
+          description: "{{ $value }} token refresh failures per second"

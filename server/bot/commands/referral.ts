@@ -10,7 +10,7 @@ export class ReferralCommand extends BaseCommand {
   description = 'Получить реферальную ссылку';
   usage = '/referral';
 
-  async execute(ctx: CommandContext): Promise<void> {
+  protected async executeCommand(ctx: CommandContext): Promise<void> {
     const { bot, chatId, userId } = ctx;
 
     try {

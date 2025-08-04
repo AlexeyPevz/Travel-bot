@@ -11,7 +11,7 @@ export class GroupSetupCommand extends BaseCommand {
   description = 'Настроить групповой поиск тура';
   usage = '/groupsetup';
 
-  async execute(ctx: CommandContext): Promise<void> {
+  protected async executeCommand(ctx: CommandContext): Promise<void> {
     const { bot, chatId, userId, message } = ctx;
 
     try {

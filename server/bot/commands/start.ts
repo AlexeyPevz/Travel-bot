@@ -11,7 +11,7 @@ export class StartCommand extends BaseCommand {
   description = 'Начать работу с ботом';
   usage = '/start';
 
-  async execute(ctx: CommandContext): Promise<void> {
+  protected async executeCommand(ctx: CommandContext): Promise<void> {
     const { bot, chatId, userId } = ctx;
 
     try {

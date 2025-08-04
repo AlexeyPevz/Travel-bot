@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { aiLogger } from '../utils/logger';
+import { aiRequestDuration, aiRequestTotal, aiTokensUsed, aiFallbackAttempts, trackAsyncOperation } from '../monitoring/metrics';
 
 const OPENROUTER_API_URL = 'https://openrouter.ai/api/v1/chat/completions';
 const YANDEX_GPT_API_URL = 'https://llm.api.cloud.yandex.net/foundationModels/v1/completion';
@@ -180,65 +181,134 @@ async function tryAIProvider(
         try {
           aiLogger.info(`Trying OpenRouter with model: ${model}`);
           
-          const response = await axios.post(
-            OPENROUTER_API_URL,
-            {
-              model,
-              messages,
-              temperature: options.temperature || 0.3,
-              max_tokens: options.maxTokens || 500,
-              ...(options.responseFormat && { response_format: options.responseFormat })
-            },
-            {
-              headers: {
-                'Authorization': `Bearer ${provider.apiKey}`,
-                'Content-Type': 'application/json',
-                'HTTP-Referer': process.env.APP_URL || 'https://travel-bot.com',
-                'X-Title': 'AI Travel Agent Bot'
-              },
-              timeout: 15000 // 15 секунд таймаут
+          const response = await trackAsyncOperation(
+            aiRequestDuration,
+            { provider: 'openrouter', model, operation: options.operation || 'chat', status: 'pending' },
+            async () => {
+              const res = await axios.post(
+                OPENROUTER_API_URL,
+                {
+                  model,
+                  messages,
+                  temperature: options.temperature || 0.3,
+                  max_tokens: options.maxTokens || 500,
+                  ...(options.responseFormat && { response_format: options.responseFormat })
+                },
+                {
+                  headers: {
+                    'Authorization': `Bearer ${provider.apiKey}`,
+                    'Content-Type': 'application/json',
+                    'HTTP-Referer': process.env.APP_URL || 'https://travel-bot.com',
+                    'X-Title': 'AI Travel Agent Bot'
+                  },
+                  timeout: 15000 // 15 секунд таймаут
+                }
+              );
+              
+              // Track tokens if available
+              if (res.data.usage) {
+                aiTokensUsed.inc(
+                  { provider: 'openrouter', model, type: 'prompt' },
+                  res.data.usage.prompt_tokens || 0
+                );
+                aiTokensUsed.inc(
+                  { provider: 'openrouter', model, type: 'completion' },
+                  res.data.usage.completion_tokens || 0
+                );
+              }
+              
+              return res;
             }
           );
 
           const content = response.data.choices[0]?.message?.content;
           if (content) {
             aiLogger.info(`Successfully got response from OpenRouter model: ${model}`);
+            aiRequestTotal.inc({
+              provider: 'openrouter',
+              model,
+              operation: options.operation || 'chat',
+              status: 'success'
+            });
             return content;
           }
         } catch (modelError: any) {
           aiLogger.warn(`Failed with model ${model}: ${modelError.message}`);
+          aiRequestTotal.inc({
+            provider: 'openrouter',
+            model,
+            operation: options.operation || 'chat',
+            status: 'error'
+          });
+          
+          // Track fallback attempt if not the last model
+          const modelIndex = (provider.models || FREE_MODELS).indexOf(model);
+          if (modelIndex < (provider.models || FREE_MODELS).length - 1) {
+            aiFallbackAttempts.inc({
+              from_provider: `openrouter:${model}`,
+              to_provider: `openrouter:${(provider.models || FREE_MODELS)[modelIndex + 1]}`,
+              reason: modelError.response?.status || 'error'
+            });
+          }
+          
           continue; // Пробуем следующую модель
         }
       }
     } else if (provider.name === 'yandexgpt' && provider.apiKey) {
       aiLogger.info('Trying YandexGPT as fallback');
       
-      const response = await axios.post(
-        YANDEX_GPT_API_URL,
-        {
-          modelUri: `gpt://${provider.apiKey}/yandexgpt-lite`,
-          completionOptions: {
-            stream: false,
-            temperature: options.temperature || 0.3,
-            maxTokens: options.maxTokens || 500
-          },
-          messages: messages.map(msg => ({
-            role: msg.role,
-            text: msg.content
-          }))
-        },
-        {
-          headers: {
-            'Authorization': `Bearer ${provider.apiKey}`,
-            'Content-Type': 'application/json'
-          },
-          timeout: 15000
+      const response = await trackAsyncOperation(
+        aiRequestDuration,
+        { provider: 'yandexgpt', model: 'yandexgpt-lite', operation: options.operation || 'chat', status: 'pending' },
+        async () => {
+          const res = await axios.post(
+            YANDEX_GPT_API_URL,
+            {
+              modelUri: `gpt://${provider.apiKey}/yandexgpt-lite`,
+              completionOptions: {
+                stream: false,
+                temperature: options.temperature || 0.3,
+                maxTokens: options.maxTokens || 500
+              },
+              messages: messages.map(msg => ({
+                role: msg.role,
+                text: msg.content
+              }))
+            },
+            {
+              headers: {
+                'Authorization': `Bearer ${provider.apiKey}`,
+                'Content-Type': 'application/json'
+              },
+              timeout: 15000
+            }
+          );
+          
+          // Track tokens if available
+          if (res.data.result?.usage) {
+            aiTokensUsed.inc(
+              { provider: 'yandexgpt', model: 'yandexgpt-lite', type: 'prompt' },
+              res.data.result.usage.inputTextTokens || 0
+            );
+            aiTokensUsed.inc(
+              { provider: 'yandexgpt', model: 'yandexgpt-lite', type: 'completion' },
+              res.data.result.usage.completionTokens || 0
+            );
+          }
+          
+          return res;
         }
       );
 
       const content = response.data.result?.alternatives?.[0]?.message?.text;
       if (content) {
         aiLogger.info('Successfully got response from YandexGPT');
+        aiRequestTotal.inc({
+          provider: 'yandexgpt',
+          model: 'yandexgpt-lite',
+          operation: options.operation || 'chat',
+          status: 'success'
+        });
         return content;
       }
     }
@@ -283,13 +353,25 @@ export async function analyzeTourRequest(userMessage: string): Promise<TourPrefe
   for (const provider of providers) {
     const result = await tryAIProvider(messages, provider, {
       temperature: 0.3,
-      responseFormat: { type: 'json_object' }
+      responseFormat: { type: 'json_object' },
+      operation: 'tour_analysis'
     });
 
     if (result) {
       try {
         const parsed = JSON.parse(result);
         aiLogger.info(`Successfully parsed tour request using ${provider.name}`);
+        
+        // Track fallback if not the first provider
+        const providerIndex = providers.indexOf(provider);
+        if (providerIndex > 0) {
+          aiFallbackAttempts.inc({
+            from_provider: providers[providerIndex - 1].name,
+            to_provider: provider.name,
+            reason: 'previous_failed'
+          });
+        }
+        
         return parsed;
       } catch (parseError) {
         aiLogger.error(`Failed to parse JSON from ${provider.name}:`, parseError);

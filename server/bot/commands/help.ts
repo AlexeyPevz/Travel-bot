@@ -10,7 +10,7 @@ export class HelpCommand extends BaseCommand {
   description = 'Показать справку и список команд';
   usage = '/help';
 
-  async execute(ctx: CommandContext): Promise<void> {
+  protected async executeCommand(ctx: CommandContext): Promise<void> {
     const { bot, chatId, userId } = ctx;
 
     try {
