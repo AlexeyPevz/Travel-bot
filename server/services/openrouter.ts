@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { aiLogger } from '../utils/logger';
 
 const OPENROUTER_API_URL = 'https://openrouter.ai/api/v1/chat/completions';
 
@@ -35,7 +36,7 @@ export async function analyzeTourRequest(userMessage: string): Promise<TourPrefe
   const apiKey = process.env.OPENROUTER_API_KEY;
   
   if (!apiKey) {
-    console.warn('OpenRouter API key not found, using basic text parsing');
+    aiLogger.warn('OpenRouter API key not found, using basic text parsing');
     return parseBasicTourRequest(userMessage);
   }
 
@@ -99,7 +100,7 @@ export async function analyzeTourRequest(userMessage: string): Promise<TourPrefe
       return JSON.parse(content);
     }
   } catch (error) {
-    console.error('Error analyzing tour request with OpenRouter:', error);
+    aiLogger.error('Error analyzing tour request with OpenRouter:', error);
   }
 
   // Fallback to basic parsing
@@ -299,7 +300,7 @@ export async function calculateTourMatchScore(
 
       analysis = response.data.choices[0]?.message?.content || analysis;
     } catch (error) {
-      console.error('Error generating AI analysis:', error);
+      aiLogger.error('Error generating AI analysis:', error);
     }
   }
 

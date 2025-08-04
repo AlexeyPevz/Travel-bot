@@ -1,10 +1,19 @@
 import { Request, Response, NextFunction } from 'express';
 import { AppError, sendErrorResponse } from '../utils/errors';
 import { ZodError } from 'zod';
+import logger from '../utils/logger';
 
 // Development error handler
 function handleDevelopmentError(err: Error, req: Request, res: Response) {
-  console.error('Error:', err);
+  logger.error({
+    message: err.message,
+    stack: err.stack,
+    path: req.path,
+    method: req.method,
+    body: req.body,
+    query: req.query,
+    params: req.params
+  });
   
   if (err instanceof ZodError) {
     return res.status(400).json({
@@ -29,7 +38,13 @@ function handleDevelopmentError(err: Error, req: Request, res: Response) {
 // Production error handler
 function handleProductionError(err: Error, req: Request, res: Response) {
   // Log error internally
-  console.error(`Error on ${req.method} ${req.path}:`, err.message);
+  logger.error({
+    message: err.message,
+    path: req.path,
+    method: req.method,
+    statusCode: err instanceof AppError ? err.statusCode : 500,
+    isOperational: err instanceof AppError ? err.isOperational : false
+  });
 
   if (err instanceof ZodError) {
     return res.status(400).json({
@@ -76,17 +91,19 @@ export function errorHandler(
 
 // Handle unhandled promise rejections
 process.on('unhandledRejection', (reason: Error | any) => {
-  console.error('Unhandled Rejection:', reason);
+  logger.error('Unhandled Rejection:', reason);
   
   // In production, exit process
   if (process.env.NODE_ENV === 'production') {
+    logger.error('Shutting down due to unhandled rejection...');
     process.exit(1);
   }
 });
 
 // Handle uncaught exceptions
 process.on('uncaughtException', (error: Error) => {
-  console.error('Uncaught Exception:', error);
+  logger.error('Uncaught Exception:', error);
+  logger.error('Shutting down due to uncaught exception...');
   
   // Always exit on uncaught exceptions
   process.exit(1);

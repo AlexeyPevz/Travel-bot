@@ -61,14 +61,50 @@ export const ONBOARDING_CARDS = [
 
 ## Как запустить проект
 
+### Вариант 1: Запуск с Docker (рекомендуется)
+
+1. Скопируйте `.env.example` в `.env` и заполните переменные окружения
+2. Запустите контейнеры:
+
+```bash
+# Для разработки (с UI для БД и Redis)
+docker-compose -f docker-compose.dev.yml up -d
+
+# Для продакшена
+docker-compose up -d
+```
+
+Доступные интерфейсы при запуске для разработки:
+- Приложение: http://localhost:5000
+- Adminer (PostgreSQL UI): http://localhost:8080
+- Redis Commander: http://localhost:8081
+- Bull Dashboard: http://localhost:3333
+
+### Вариант 2: Локальный запуск
+
 1. Установите зависимости: `npm install`
 2. Скопируйте `.env.example` в `.env` и заполните переменные окружения:
    - `TELEGRAM_TOKEN` - токен вашего Telegram бота
-   - `DATABASE_URL` - строка подключения к PostgreSQL (Neon)
+   - `DATABASE_URL` - строка подключения к PostgreSQL
    - `OPENROUTER_API_KEY` - ключ API OpenRouter для AI функций
    - `LEVELTRAVEL_API_KEY` - ключ API Level.Travel
-3. Инициализируйте базу данных: `npm run db:push`
-4. Запустите проект: `npm run dev`
+   - `REDIS_HOST`, `REDIS_PORT`, `REDIS_PASSWORD` - настройки Redis
+3. Убедитесь что запущены PostgreSQL и Redis
+4. Инициализируйте базу данных: `npm run db:push`
+5. Запустите проект: `npm run dev`
+
+### Тестирование
+
+```bash
+# Запуск тестов
+npm test
+
+# Запуск тестов в режиме наблюдения
+npm run test:watch
+
+# Генерация отчета о покрытии
+npm run test:coverage
+```
 
 ## Использование
 

@@ -1,5 +1,6 @@
 import TelegramBot from 'node-telegram-bot-api';
 import { getUserState, setUserState } from '../fsm';
+import botLogger from '../utils/logger';
 
 /**
  * Содержание карточек онбординга
@@ -37,7 +38,7 @@ export async function sendIntroCards(
   // Проверяем, показывали ли уже приветствие пользователю
   const userState = getUserState(userId);
   if (!force && userState?.onboardingShown) {
-    console.log(`Онбординг уже был показан пользователю ${userId}`);
+    botLogger.info(`Онбординг уже был показан пользователю ${userId}`);
     return;
   }
 
@@ -50,7 +51,7 @@ export async function sendIntroCards(
   }
 
   // Отправляем карточки с задержкой с поддержкой Markdown форматирования
-  console.log(`Отправка ${ONBOARDING_CARDS.length} онбординг-карточек пользователю ${userId}`);
+  botLogger.info(`Отправка ${ONBOARDING_CARDS.length} онбординг-карточек пользователю ${userId}`);
   
   for (const card of ONBOARDING_CARDS) {
     try {
@@ -60,12 +61,12 @@ export async function sendIntroCards(
         .replace(/\_([^_]+)\_/g, '<i>$1</i>'); // _курсив_ -> <i>курсив</i>
       
       await bot.sendMessage(chatId, htmlCard, { parse_mode: 'HTML' });
-      console.log(`Карточка успешно отправлена: ${htmlCard.substring(0, 20)}...`);
+      botLogger.info(`Карточка успешно отправлена: ${htmlCard.substring(0, 20)}...`);
       
       // Добавляем небольшую задержку между сообщениями
       await new Promise(resolve => setTimeout(resolve, CARD_DELAY));
     } catch (error) {
-      console.error('Ошибка при отправке карточки:', error);
+      botLogger.error('Ошибка при отправке карточки:', error);
       // В случае ошибки форматирования отправляем без форматирования
       await bot.sendMessage(chatId, card.replace(/[\*\_]/g, ''));
       await new Promise(resolve => setTimeout(resolve, CARD_DELAY));

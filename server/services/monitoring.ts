@@ -5,6 +5,7 @@ import { searchTours } from '../providers';
 import { calculateTourMatchScore } from './openrouter';
 import { getBot } from '../bot';
 import TelegramBot from 'node-telegram-bot-api';
+import logger from '../utils/logger';
 
 // Минимальный порог соответствия для отправки уведомления
 const NOTIFICATION_THRESHOLD = 85;
@@ -13,19 +14,33 @@ const NOTIFICATION_THRESHOLD = 85;
  * Запуск фонового мониторинга
  */
 export async function startMonitoring() {
-  console.log('Starting tour monitoring service...');
+  logger.info('Starting tour monitoring service...');
   
-  // Проверяем задачи каждые 5 минут
-  setInterval(async () => {
-    try {
-      await processPendingTasks();
-    } catch (error) {
-      console.error('Error in monitoring cycle:', error);
+  // Загружаем активные задачи мониторинга из БД и добавляем в очереди
+  try {
+    const activeTasks = await db.select()
+      .from(monitoringTasks)
+      .where(eq(monitoringTasks.status, 'active'));
+    
+    logger.info(`Found ${activeTasks.length} active monitoring tasks`);
+    
+    // Импортируем динамически чтобы избежать циклической зависимости
+    const { scheduleMonitoring } = await import('./queues');
+    
+    for (const task of activeTasks) {
+      await scheduleMonitoring(
+        task.userId,
+        task.profileId,
+        task.taskType as any,
+        undefined,
+        task.groupId || undefined
+      );
     }
-  }, 5 * 60 * 1000); // 5 minutes
-
-  // Первый запуск сразу
-  processPendingTasks();
+    
+    logger.info('All monitoring tasks scheduled');
+  } catch (error) {
+    logger.error('Error starting monitoring service:', error);
+  }
 }
 
 /**
@@ -44,7 +59,7 @@ async function processPendingTasks() {
       )
     );
 
-  console.log(`Processing ${tasks.length} monitoring tasks`);
+  logger.info(`Processing ${tasks.length} monitoring tasks`);
 
   for (const task of tasks) {
     try {
@@ -68,7 +83,7 @@ async function processPendingTasks() {
         })
         .where(eq(monitoringTasks.id, task.id));
     } catch (error) {
-      console.error(`Error processing task ${task.id}:`, error);
+      logger.error(`Error processing task ${task.id}:`, error);
     }
   }
 }
@@ -76,17 +91,15 @@ async function processPendingTasks() {
 /**
  * Мониторинг туров для профиля пользователя
  */
-async function monitorProfileTours(task: any) {
-  if (!task.profileId) return;
-
+export async function monitorProfileTours(userId: string, profileId: number) {
   const [profile] = await db.select()
     .from(profiles)
-    .where(eq(profiles.id, task.profileId))
+    .where(eq(profiles.id, profileId))
     .limit(1);
 
   if (!profile) return;
 
-  console.log(`Monitoring tours for user ${profile.userId}`);
+  logger.info(`Monitoring tours for user ${profile.userId}`);
 
   // Поиск туров по параметрам профиля
   const searchParams = {
@@ -177,19 +190,17 @@ async function monitorProfileTours(task: any) {
 /**
  * Проверка дедлайнов и предложение альтернатив
  */
-async function checkDeadline(task: any) {
-  if (!task.profileId) return;
-
+export async function checkDeadline(userId: string, profileId: number) {
   const [profile] = await db.select()
     .from(profiles)
-    .where(eq(profiles.id, task.profileId))
+    .where(eq(profiles.id, profileId))
     .limit(1);
 
   if (!profile || !profile.deadline) return;
 
   const now = new Date();
   if (now > profile.deadline) {
-    console.log(`Deadline reached for user ${profile.userId}, suggesting alternatives`);
+    logger.info(`Deadline reached for user ${profile.userId}, suggesting alternatives`);
 
     // Получаем приоритеты пользователя
     const priorities = profile.priorities as Record<string, number> || {};
@@ -246,12 +257,10 @@ async function checkDeadline(task: any) {
 /**
  * Мониторинг туров для группы
  */
-async function monitorGroupTours(task: any) {
-  if (!task.groupId) return;
-
+export async function monitorGroupTours(groupId: number) {
   const [group] = await db.select()
     .from(groupProfiles)
-    .where(eq(groupProfiles.id, task.groupId))
+    .where(eq(groupProfiles.id, groupId))
     .limit(1);
 
   if (!group || !group.isActive) return;
@@ -259,7 +268,7 @@ async function monitorGroupTours(task: any) {
   const aggregatedProfile = group.aggregatedProfile as any;
   if (!aggregatedProfile) return;
 
-  console.log(`Monitoring tours for group ${group.chatId}`);
+  logger.info(`Monitoring tours for group ${group.chatId}`);
 
   // Поиск туров по агрегированным параметрам
   const searchParams = {

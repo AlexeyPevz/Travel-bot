@@ -19,6 +19,8 @@ import {
   watchlistSchema
 } from './validators/schemas';
 import { asyncHandler, NotFoundError, ValidationError } from './utils/errors';
+import apiLogger from '../utils/logger';
+import { cache, cacheKeys, CACHE_TTL } from './services/cache';
 
 export async function registerRoutes(app: Express): Promise<Server> {
   const server = require('http').createServer(app);
@@ -37,6 +39,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Получить профиль пользователя
   app.get('/api/profile/:userId', asyncHandler(async (req: any, res: any) => {
     const { userId } = req.params;
+    const cacheKey = cacheKeys.profile(userId);
+    
+    // Проверяем кэш
+    const cached = await cache.get(cacheKey);
+    if (cached) {
+      return res.json(cached);
+    }
+    
     const [profile] = await db.select()
       .from(profiles)
       .where(eq(profiles.userId, userId))
@@ -52,7 +62,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       .where(eq(tourPriorities.userId, userId))
       .limit(1);
 
-    res.json({ ...profile, priorities: priorities || profile.priorities });
+    const result = { ...profile, priorities: priorities || profile.priorities };
+    
+    // Сохраняем в кэш
+    await cache.set(cacheKey, result, CACHE_TTL.PROFILE);
+    
+    res.json(result);
   }));
 
   // Создать или обновить профиль
@@ -102,7 +117,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       res.json(profile);
     } catch (error) {
-      console.error('Error saving profile:', error);
+      apiLogger.error('Error saving profile:', error);
       res.status(500).json({ error: 'Internal server error' });
     }
   });
@@ -137,7 +152,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       res.json(preferences);
     } catch (error) {
-      console.error('Error analyzing request:', error);
+      apiLogger.error('Error analyzing request:', error);
       res.status(500).json({ error: 'Internal server error' });
     }
   });
@@ -203,7 +218,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       res.json(tours);
     } catch (error) {
-      console.error('Error searching tours:', error);
+      apiLogger.error('Error searching tours:', error);
       res.status(500).json({ error: 'Internal server error' });
     }
   });
@@ -224,7 +239,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       res.json(watchlist);
     } catch (error) {
-      console.error('Error creating watchlist:', error);
+      apiLogger.error('Error creating watchlist:', error);
       res.status(500).json({ error: 'Internal server error' });
     }
   });
@@ -239,7 +254,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       res.json(userWatchlists);
     } catch (error) {
-      console.error('Error fetching watchlists:', error);
+      apiLogger.error('Error fetching watchlists:', error);
       res.status(500).json({ error: 'Internal server error' });
     }
   });
@@ -258,7 +273,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       res.json({ groupId, message: 'Group profile created' });
     } catch (error) {
-      console.error('Error creating group:', error);
+      apiLogger.error('Error creating group:', error);
       res.status(500).json({ error: 'Internal server error' });
     }
   });
@@ -275,7 +290,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const voteCount = await handleGroupVote(groupId, tourId, userId, vote, comment);
       res.json(voteCount);
     } catch (error) {
-      console.error('Error handling vote:', error);
+      apiLogger.error('Error handling vote:', error);
       res.status(500).json({ error: 'Internal server error' });
     }
   });
@@ -295,7 +310,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       res.json(group);
     } catch (error) {
-      console.error('Error fetching group:', error);
+      apiLogger.error('Error fetching group:', error);
       res.status(500).json({ error: 'Internal server error' });
     }
   });
@@ -322,7 +337,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       res.json(recommendedTours);
     } catch (error) {
-      console.error('Error fetching recommended tours:', error);
+      apiLogger.error('Error fetching recommended tours:', error);
       res.status(500).json({ error: 'Internal server error' });
     }
   });

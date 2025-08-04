@@ -2,11 +2,16 @@ import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes.js";
 import { setupVite, serveStatic, log } from "./vite.js";
 import { setupSecurity, sanitizeBody } from "./middleware/security.js";
+import logger, { stream } from "./utils/logger.js";
+import morgan from "morgan";
 
 const app = express();
 
 // Security middleware
 setupSecurity(app);
+
+// HTTP request logging
+app.use(morgan('combined', { stream }));
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
