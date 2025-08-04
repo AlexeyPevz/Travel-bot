@@ -1,4 +1,5 @@
 import { Express } from 'express';
+import { z } from 'zod';
 import { db } from '../db';
 import { profiles, tours, tourMatches, groupProfiles, watchlists, tourPriorities } from '@shared/schema';
 import { eq, and, desc } from 'drizzle-orm';
@@ -9,15 +10,23 @@ import { startMonitoring } from './services/monitoring';
 import { createOrUpdateGroupProfile, aggregateGroupProfiles, handleGroupVote } from './services/groups';
 import { Server } from 'http';
 import { 
-  validate, 
-  validateQuery,
+  userIdSchema,
+  createProfileSchema,
   updateProfileSchema,
   analyzeRequestSchema,
   tourSearchSchema,
   createGroupSchema,
-  voteSchema,
-  watchlistSchema
+  tourVoteSchema,
+  watchlistSchema,
+  profileSchema
 } from './validators/schemas';
+import { 
+  validateBody, 
+  validateQuery, 
+  validateParams,
+  validateAll,
+  createValidatedHandler
+} from './middleware/validation';
 import { asyncHandler, NotFoundError, ValidationError } from './utils/errors';
 import apiLogger from './utils/logger';
 import { getHealthStatus, getReadinessStatus, getLivenessStatus } from './monitoring/health';
@@ -26,6 +35,8 @@ import { cache, cacheKeys, CACHE_TTL } from './services/cache';
 import { apiVersionMiddleware } from './middleware/apiVersion';
 import v1Routes from './routes/v1';
 import { setupSwagger } from './docs/swagger';
+import authRoutes from './routes/auth';
+import { requireAuth, optionalAuth, authorizeOwner } from './middleware/auth';
 
 export async function registerRoutes(app: Express): Promise<Server> {
   const server = require('http').createServer(app);
@@ -41,6 +52,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // API versioning middleware
   app.use('/api', apiVersionMiddleware);
+
+  // Authentication routes (version-agnostic)
+  app.use('/api/auth', authRoutes);
 
   // Mount versioned routes
   app.use('/api/v1', v1Routes);
@@ -117,14 +131,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
   }));
 
   // Создать или обновить профиль
-  app.post('/api/profile', validate(updateProfileSchema), async (req, res) => {
-    try {
+  app.post('/api/profile', 
+    requireAuth,
+    authorizeOwner('userId'),
+    validateBody(createProfileSchema),
+    asyncHandler(async (req, res) => {
       const profileData = req.body;
       const { userId, priorities, ...rest } = profileData;
-
-      if (!userId) {
-        return res.status(400).json({ error: 'userId is required' });
-      }
 
       // Сохраняем профиль
       const [existingProfile] = await db.select()
@@ -161,15 +174,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
+      // Инвалидируем кэш
+      await cache.del(cacheKeys.profile(userId));
+      
       res.json(profile);
-    } catch (error) {
-      apiLogger.error('Error saving profile:', error);
-      res.status(500).json({ error: 'Internal server error' });
-    }
-  });
+    }));
 
   // Анализ текстового запроса
-  app.post('/api/analyze-request', validate(analyzeRequestSchema), async (req, res) => {
+  app.post('/api/analyze-request', 
+    validateBody(analyzeRequestSchema),
+    asyncHandler(async (req, res) => {
     try {
       const { message, userId } = req.body;
 
@@ -204,7 +218,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Поиск туров
-  app.get('/api/tours', validateQuery(tourSearchSchema), async (req, res) => {
+  app.get('/api/tours', 
+    validateQuery(tourSearchSchema),
+    asyncHandler(async (req, res) => {
     try {
       const { userId, countries, budget, startDate, endDate } = req.query;
 
@@ -270,8 +286,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Создать watchlist
-  app.post('/api/watchlist', async (req, res) => {
-    try {
+  app.post('/api/watchlist', 
+    validateBody(watchlistSchema),
+    asyncHandler(async (req, res) => {
       const watchlistData = req.body;
       const { userId } = watchlistData;
 
@@ -291,8 +308,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Получить watchlists пользователя
-  app.get('/api/watchlist/:userId', async (req, res) => {
-    try {
+  app.get('/api/watchlist/:userId', 
+    validateParams(z.object({ userId: userIdSchema })),
+    asyncHandler(async (req, res) => {
       const { userId } = req.params;
       const userWatchlists = await db.select()
         .from(watchlists)
@@ -306,27 +324,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Групповые функции
-  app.post('/api/group/create', async (req, res) => {
-    try {
+  app.post('/api/group/create', 
+    validateBody(createGroupSchema),
+    asyncHandler(async (req, res) => {
       const { chatId, chatTitle, memberIds } = req.body;
-
-      if (!chatId || !memberIds) {
-        return res.status(400).json({ error: 'chatId and memberIds are required' });
-      }
 
       const groupId = await createOrUpdateGroupProfile(chatId, chatTitle, memberIds);
       await aggregateGroupProfiles(groupId);
 
       res.json({ groupId, message: 'Group profile created' });
-    } catch (error) {
-      apiLogger.error('Error creating group:', error);
-      res.status(500).json({ error: 'Internal server error' });
-    }
-  });
+    }));
 
   // Голосование за тур
-  app.post('/api/group/vote', async (req, res) => {
-    try {
+  app.post('/api/group/vote', 
+    validateBody(tourVoteSchema),
+    asyncHandler(async (req, res) => {
       const { groupId, tourId, userId, vote, comment } = req.body;
 
       if (!groupId || !tourId || !userId || !vote) {
