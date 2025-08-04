@@ -3,7 +3,7 @@ import {
   tourSearchSchema,
   analyzeRequestSchema,
   createGroupSchema,
-  voteSchema,
+  tourVoteSchema,
   watchlistSchema
 } from '../../server/validators/schemas';
 
@@ -112,7 +112,7 @@ describe('Validation Schemas', () => {
     });
   });
 
-  describe('voteSchema', () => {
+  describe('tourVoteSchema', () => {
     it('should validate vote values', () => {
       const validVote = {
         groupId: 1,
@@ -122,7 +122,7 @@ describe('Validation Schemas', () => {
         comment: 'Looks great!'
       };
 
-      const result = voteSchema.parse(validVote);
+      const result = tourVoteSchema.parse(validVote);
       expect(result).toEqual(validVote);
     });
 
@@ -134,7 +134,7 @@ describe('Validation Schemas', () => {
         vote: 'invalid'
       };
 
-      expect(() => voteSchema.parse(invalidVote)).toThrow();
+      expect(() => tourVoteSchema.parse(invalidVote)).toThrow();
     });
   });
 

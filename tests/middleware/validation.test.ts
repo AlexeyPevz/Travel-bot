@@ -30,12 +30,12 @@ describe('Validation Middleware', () => {
       params: {},
       path: '/test',
       method: 'POST'
-    };
+    } as any;
     
     mockRes = {
       status: jest.fn().mockReturnThis(),
       json: jest.fn().mockReturnThis()
-    };
+    } as any;
     
     mockNext = jest.fn();
     jest.clearAllMocks();

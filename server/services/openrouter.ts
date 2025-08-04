@@ -168,6 +168,7 @@ async function tryAIProvider(
     temperature?: number;
     maxTokens?: number;
     responseFormat?: any;
+    operation?: string;
   } = {}
 ): Promise<string | null> {
   if (!provider.enabled) {

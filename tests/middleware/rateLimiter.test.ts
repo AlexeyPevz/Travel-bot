@@ -74,12 +74,12 @@ describe('Rate Limiter Middleware', () => {
       ip: '127.0.0.1',
       path: '/api/test',
       headers: {}
-    };
+    } as any;
     
     mockRes = {
       status: jest.fn().mockReturnThis(),
       json: jest.fn().mockReturnThis()
-    };
+    } as any;
     
     mockNext = jest.fn();
     jest.clearAllMocks();
