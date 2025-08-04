@@ -67,7 +67,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   }));
 
   // Kubernetes-style health checks
-  app.get('/api/health/ready', asyncHandler(async (req, res) => {
+  app.get('/api/health/ready', asyncHandler(async (req: any, res: any) => {
     const { ready, checks } = await getReadinessStatus();
     res.status(ready ? 200 : 503).json({ ready, checks });
   }));
@@ -246,7 +246,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
         if (profile && profile.priorities) {
           const toursWithScores = await Promise.all(
-            tours.map(async (tour) => {
+            tours.map(async (tour: any) => {
               const { score, details, analysis } = await calculateTourMatchScore(
                 tour,
                 searchParams,
@@ -257,7 +257,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           );
 
           // Сортируем по соответствию
-          toursWithScores.sort((a, b) => b.matchScore - a.matchScore);
+          toursWithScores.sort((a: any, b: any) => b.matchScore - a.matchScore);
           return res.json(toursWithScores);
         }
       }
