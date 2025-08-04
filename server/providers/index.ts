@@ -171,5 +171,6 @@ export async function fetchToursFromAllProviders(params: TourSearchParams): Prom
   }
 }
 
-// Export searchTours as an alias for fetchTours for compatibility
-export { fetchTours as searchTours };
+// Export searchTours as an alias for fetchToursFromAllProviders for compatibility
+export { fetchToursFromAllProviders as searchTours };
+export { fetchToursFromAllProviders as fetchTours };
