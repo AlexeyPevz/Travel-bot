@@ -27,7 +27,24 @@ const format = winston.format.combine(
   winston.format.timestamp({ format: 'YYYY-MM-DD HH:mm:ss:ms' }),
   winston.format.colorize({ all: true }),
   winston.format.printf(
-    (info) => `${info.timestamp} ${info.level}: ${info.message}`,
+    (info) => {
+      const { timestamp, level, message, correlationId, ...rest } = info;
+      let log = `${timestamp} ${level}: `;
+      
+      // Add correlation ID if present
+      if (correlationId) {
+        log += `[${correlationId}] `;
+      }
+      
+      log += message;
+      
+      // Add additional fields if present
+      if (Object.keys(rest).length > 0) {
+        log += ` ${JSON.stringify(rest)}`;
+      }
+      
+      return log;
+    }
   ),
 );
 
@@ -58,10 +75,9 @@ const logger = winston.createLogger({
   levels,
   format,
   transports,
-  exitOnError: false,
 });
 
-// Create a stream object for Morgan HTTP logging
+// Add stream for Morgan
 export const stream = {
   write: (message: string) => {
     logger.http(message.trim());
@@ -74,7 +90,7 @@ export const apiLogger = logger.child({ service: 'api' });
 export const dbLogger = logger.child({ service: 'database' });
 export const aiLogger = logger.child({ service: 'ai' });
 
-// Log unhandled errors
+// Handle exceptions and rejections
 logger.exceptions.handle(
   new winston.transports.File({ filename: path.join('logs', 'exceptions.log') })
 );
@@ -82,5 +98,14 @@ logger.exceptions.handle(
 logger.rejections.handle(
   new winston.transports.File({ filename: path.join('logs', 'rejections.log') })
 );
+
+// Extend logger with child method if not present
+if (!logger.child) {
+  logger.child = function(meta: any) {
+    const childLogger = Object.create(this);
+    childLogger.defaultMeta = { ...this.defaultMeta, ...meta };
+    return childLogger;
+  };
+}
 
 export default logger;

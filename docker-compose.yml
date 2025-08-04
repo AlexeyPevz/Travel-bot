@@ -17,6 +17,20 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    restart: unless-stopped
 
   # Redis Cache
   redis:
@@ -31,6 +45,20 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    restart: unless-stopped
 
   # Application
   app:
@@ -58,7 +86,51 @@ services:
         condition: service_healthy
     volumes:
       - ./logs:/app/logs
+      - /app/node_modules
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '1'
+          memory: 1G
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "5"
+        labels: "service=app"
     restart: unless-stopped
+    stop_grace_period: 30s
+
+  # Nginx Reverse Proxy (Optional but recommended for production)
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - app
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    restart: unless-stopped
+    profiles:
+      - production
 
   # Development Database UI (optional)
   adminer:
@@ -67,6 +139,11 @@ services:
       - "8080:8080"
     depends_on:
       - postgres
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 256M
     profiles:
       - dev
 
@@ -79,9 +156,23 @@ services:
       - "8081:8081"
     depends_on:
       - redis
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 256M
     profiles:
       - dev
 
 volumes:
   postgres_data:
+    driver: local
   redis_data:
+    driver: local
+
+networks:
+  default:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16

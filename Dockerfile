@@ -50,6 +50,9 @@ EXPOSE 5000
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
   CMD node -e "require('http').get('http://localhost:5000/api/health', (res) => { process.exit(res.statusCode === 200 ? 0 : 1); })"
 
+# Run migrations on startup (optional, can be disabled with env var)
+ENV RUN_MIGRATIONS=true
+
 # Start the application with dumb-init
 ENTRYPOINT ["dumb-init", "--"]
-CMD ["node", "dist/server/index.js"]
+CMD ["sh", "-c", "if [ \"$RUN_MIGRATIONS\" = \"true\" ]; then node dist/db/migrate.js || exit 1; fi && node dist/server/index.js"]

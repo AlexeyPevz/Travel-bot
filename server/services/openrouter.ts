@@ -157,12 +157,58 @@ function parseBasicTourRequest(text: string): TourPreferences {
   }
 
   // Извлечение количества человек
-  if (lowerText.includes('двоих') || lowerText.includes('вдвоем')) {
+  const peopleMatch = text.match(/на\s+(\d+)\s+(?:человек|чел|персон)/i);
+  if (peopleMatch) {
+    result.peopleCount = parseInt(peopleMatch[1]);
+  } else if (lowerText.includes('двоих') || lowerText.includes('вдвоем')) {
     result.peopleCount = 2;
   } else if (lowerText.includes('троих') || lowerText.includes('втроем')) {
     result.peopleCount = 3;
   } else if (lowerText.includes('четверых') || lowerText.includes('вчетвером')) {
     result.peopleCount = 4;
+  } else {
+    // Попробуем найти паттерн "2 человека", "3 человека" и т.д.
+    const simplePeopleMatch = text.match(/(\d+)\s+человек/i);
+    if (simplePeopleMatch) {
+      result.peopleCount = parseInt(simplePeopleMatch[1]);
+    }
+  }
+
+  // Извлечение дат
+  const monthNames: Record<string, number> = {
+    'января': 0, 'январь': 0,
+    'февраля': 1, 'февраль': 1,
+    'марта': 2, 'март': 2,
+    'апреля': 3, 'апрель': 3,
+    'мая': 4, 'май': 4,
+    'июня': 5, 'июнь': 5,
+    'июля': 6, 'июль': 6,
+    'августа': 7, 'август': 7,
+    'сентября': 8, 'сентябрь': 8,
+    'октября': 9, 'октябрь': 9,
+    'ноября': 10, 'ноябрь': 10,
+    'декабря': 11, 'декабрь': 11
+  };
+
+  // Паттерн для дат вида "с 15 июля по 25 июля"
+  const dateRangeMatch = text.match(/с\s+(\d{1,2})\s+(\w+)\s+по\s+(\d{1,2})\s+(\w+)/i);
+  if (dateRangeMatch) {
+    const startDay = parseInt(dateRangeMatch[1]);
+    const startMonth = monthNames[dateRangeMatch[2].toLowerCase()];
+    const endDay = parseInt(dateRangeMatch[3]);
+    const endMonth = monthNames[dateRangeMatch[4].toLowerCase()];
+    
+    if (startMonth !== undefined && endMonth !== undefined) {
+      const currentYear = new Date().getFullYear();
+      result.startDate = new Date(currentYear, startMonth, startDay);
+      result.endDate = new Date(currentYear, endMonth, endDay);
+      
+      // Если даты в прошлом, добавляем год
+      if (result.startDate < new Date()) {
+        result.startDate.setFullYear(currentYear + 1);
+        result.endDate.setFullYear(currentYear + 1);
+      }
+    }
   }
 
   // Определение типа отдыха
@@ -260,6 +306,17 @@ export async function calculateTourMatchScore(
     details.mealType = mealScore;
     weightedScore += mealScore * priorities.mealType;
     totalWeight += priorities.mealType;
+  }
+
+  // Соответствие по стране
+  if (preferences.countries && tour.destination) {
+    const locationWeight = priorities.location || 10;
+    const locationScore = preferences.countries.some(country => 
+      tour.destination.toLowerCase().includes(country.toLowerCase())
+    ) ? 100 : 0;
+    details.location = locationScore;
+    weightedScore += locationScore * locationWeight;
+    totalWeight += locationWeight;
   }
 
   const finalScore = totalWeight > 0 ? Math.round(weightedScore / totalWeight) : 50;

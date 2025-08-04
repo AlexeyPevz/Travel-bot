@@ -19,8 +19,13 @@ import {
   watchlistSchema
 } from './validators/schemas';
 import { asyncHandler, NotFoundError, ValidationError } from './utils/errors';
-import apiLogger from '../utils/logger';
+import apiLogger from './utils/logger';
+import { getHealthStatus, getReadinessStatus, getLivenessStatus } from './monitoring/health';
+import { setupMetrics } from './monitoring/metrics';
 import { cache, cacheKeys, CACHE_TTL } from './services/cache';
+import { apiVersionMiddleware } from './middleware/apiVersion';
+import v1Routes from './routes/v1';
+import { setupSwagger } from './docs/swagger';
 
 export async function registerRoutes(app: Express): Promise<Server> {
   const server = require('http').createServer(app);
@@ -31,13 +36,54 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Запускаем мониторинг
   startMonitoring();
 
-  // Health check
-  app.get('/api/health', (req, res) => {
-    res.json({ status: 'ok', timestamp: new Date() });
+  // Setup Prometheus metrics
+  setupMetrics(app);
+
+  // API versioning middleware
+  app.use('/api', apiVersionMiddleware);
+
+  // Mount versioned routes
+  app.use('/api/v1', v1Routes);
+
+  // Setup Swagger documentation
+  setupSwagger(app);
+
+  // Health check endpoints (version-agnostic)
+  /**
+   * @swagger
+   * /health:
+   *   get:
+   *     summary: Health check
+   *     tags: [Health]
+   *     responses:
+   *       200:
+   *         description: Service is healthy
+   *       503:
+   *         description: Service is unhealthy
+   */
+  app.get('/api/health', asyncHandler(async (req: any, res: any) => {
+    const health = await getHealthStatus();
+    res.status(health.status === 'healthy' ? 200 : 503).json(health);
+  }));
+
+  // Kubernetes-style health checks
+  app.get('/api/health/ready', asyncHandler(async (req: any, res: any) => {
+    const { ready, checks } = await getReadinessStatus();
+    res.status(ready ? 200 : 503).json({ ready, checks });
+  }));
+
+  app.get('/api/health/live', (req, res) => {
+    const liveness = getLivenessStatus();
+    res.json(liveness);
   });
 
-  // Получить профиль пользователя
-  app.get('/api/profile/:userId', asyncHandler(async (req: any, res: any) => {
+  // Legacy endpoints (redirect to v1)
+  app.get('/api/profile/:userId', (req, res) => {
+    res.redirect(301, `/api/v1/profile/${req.params.userId}`);
+  });
+
+  // DEPRECATED: Old profile endpoint (to be removed)
+  app.get('/api/v0/profile/:userId', asyncHandler(async (req: any, res: any) => {
     const { userId } = req.params;
     const cacheKey = cacheKeys.profile(userId);
     
@@ -200,7 +246,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
         if (profile && profile.priorities) {
           const toursWithScores = await Promise.all(
-            tours.map(async (tour) => {
+            tours.map(async (tour: any) => {
               const { score, details, analysis } = await calculateTourMatchScore(
                 tour,
                 searchParams,
@@ -211,7 +257,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           );
 
           // Сортируем по соответствию
-          toursWithScores.sort((a, b) => b.matchScore - a.matchScore);
+          toursWithScores.sort((a: any, b: any) => b.matchScore - a.matchScore);
           return res.json(toursWithScores);
         }
       }
