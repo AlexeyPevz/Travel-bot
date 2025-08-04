@@ -56,6 +56,8 @@ export const ONBOARDING_CARDS = [
 - `/help` - Отображение карточек онбординга и списка команд
 - `/myrequests` - История запросов пользователя
 - `/referral` - Получение реферальной ссылки
+- `/join` - Присоединиться к групповому поиску (в групповых чатах)
+- `/groupsetup` - Настроить групповой поиск туров
 
 ## Как запустить проект
 
@@ -81,3 +83,69 @@ export const ONBOARDING_CARDS = [
 2. Используйте команду `/groupsetup`
 3. Каждый участник заполняет свои предпочтения
 4. Получайте общие рекомендации и голосуйте
+
+## Технические особенности
+
+### Анализ текстовых запросов
+Бот понимает естественные запросы на русском языке:
+- "Хочу на море в Турцию, 4 звезды, первая линия"
+- "Ищу тур в Египет на двоих, бюджет 150 тысяч"
+- "Нужен отель все включено с хорошим рейтингом"
+
+### Система весов
+Каждый параметр оценивается от 0 до 10:
+- **0** - совсем не важно
+- **5** - умеренно важно
+- **10** - критически важно
+
+### Фоновый мониторинг
+- Проверка новых туров каждый час
+- Уведомления при соответствии от 85%
+- Автоматическая деактивация после бронирования
+
+### API Endpoints
+
+- `GET /api/profile/:userId` - получить профиль
+- `POST /api/profile` - создать/обновить профиль
+- `POST /api/analyze-request` - анализ текстового запроса
+- `GET /api/tours` - поиск туров
+- `POST /api/group/create` - создать группу
+- `POST /api/group/vote` - голосовать за тур
+- `GET /api/tours/recommended/:userId` - рекомендованные туры
+
+## Переменные окружения
+
+```bash
+# База данных PostgreSQL (Neon)
+DATABASE_URL=postgresql://user:password@host:5432/database
+
+# Telegram Bot
+TELEGRAM_TOKEN=your_bot_token_from_botfather
+
+# OpenRouter API (для AI анализа)
+OPENROUTER_API_KEY=your_openrouter_api_key
+
+# Level.Travel API
+LEVELTRAVEL_API_KEY=your_leveltravel_api_key
+LEVEL_TRAVEL_PARTNER=627387
+
+# URL приложения
+APP_URL=https://your-app-url.com
+```
+
+## Требования
+
+- Node.js 18+
+- PostgreSQL (рекомендуется Neon)
+- Telegram Bot Token
+- OpenRouter API ключ (опционально, есть fallback)
+- Level.Travel API ключ
+
+## Дополнительная документация
+
+- [ARCHITECTURE.md](./ARCHITECTURE.md) - детальное описание архитектуры
+- [API.md](./API.md) - документация по API endpoints
+
+## Лицензия
+
+MIT
