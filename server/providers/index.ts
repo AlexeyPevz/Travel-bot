@@ -170,3 +170,6 @@ export async function fetchToursFromAllProviders(params: TourSearchParams): Prom
     return [];
   }
 }
+
+// Export searchTours as an alias for fetchTours for compatibility
+export { fetchTours as searchTours };

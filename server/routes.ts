@@ -8,6 +8,17 @@ import { startBot } from './bot';
 import { startMonitoring } from './services/monitoring';
 import { createOrUpdateGroupProfile, aggregateGroupProfiles, handleGroupVote } from './services/groups';
 import { Server } from 'http';
+import { 
+  validate, 
+  validateQuery,
+  updateProfileSchema,
+  analyzeRequestSchema,
+  tourSearchSchema,
+  createGroupSchema,
+  voteSchema,
+  watchlistSchema
+} from './validators/schemas';
+import { asyncHandler, NotFoundError, ValidationError } from './utils/errors';
 
 export async function registerRoutes(app: Express): Promise<Server> {
   const server = require('http').createServer(app);
@@ -24,33 +35,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Получить профиль пользователя
-  app.get('/api/profile/:userId', async (req, res) => {
-    try {
-      const { userId } = req.params;
-      const [profile] = await db.select()
-        .from(profiles)
-        .where(eq(profiles.userId, userId))
-        .limit(1);
+  app.get('/api/profile/:userId', asyncHandler(async (req: any, res: any) => {
+    const { userId } = req.params;
+    const [profile] = await db.select()
+      .from(profiles)
+      .where(eq(profiles.userId, userId))
+      .limit(1);
 
-      if (!profile) {
-        return res.status(404).json({ error: 'Profile not found' });
-      }
-
-      // Получаем приоритеты
-      const [priorities] = await db.select()
-        .from(tourPriorities)
-        .where(eq(tourPriorities.userId, userId))
-        .limit(1);
-
-      res.json({ ...profile, priorities: priorities || profile.priorities });
-    } catch (error) {
-      console.error('Error fetching profile:', error);
-      res.status(500).json({ error: 'Internal server error' });
+    if (!profile) {
+      throw new NotFoundError('Profile not found');
     }
-  });
+
+    // Получаем приоритеты
+    const [priorities] = await db.select()
+      .from(tourPriorities)
+      .where(eq(tourPriorities.userId, userId))
+      .limit(1);
+
+    res.json({ ...profile, priorities: priorities || profile.priorities });
+  }));
 
   // Создать или обновить профиль
-  app.post('/api/profile', async (req, res) => {
+  app.post('/api/profile', validate(updateProfileSchema), async (req, res) => {
     try {
       const profileData = req.body;
       const { userId, priorities, ...rest } = profileData;
@@ -102,7 +108,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Анализ текстового запроса
-  app.post('/api/analyze-request', async (req, res) => {
+  app.post('/api/analyze-request', validate(analyzeRequestSchema), async (req, res) => {
     try {
       const { message, userId } = req.body;
 
@@ -137,7 +143,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Поиск туров
-  app.get('/api/tours', async (req, res) => {
+  app.get('/api/tours', validateQuery(tourSearchSchema), async (req, res) => {
     try {
       const { userId, countries, budget, startDate, endDate } = req.query;
 
