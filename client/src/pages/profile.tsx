@@ -4,13 +4,16 @@ import Header from '@/components/Header';
 import Navigation from '@/components/Navigation';
 import ProfileForm from '@/components/ProfileForm';
 import ProfileSelector from '@/components/ProfileSelector';
+import PrioritySlider from '@/components/PrioritySlider';
 import { Card, CardContent } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
 import { useToast } from '@/hooks/use-toast';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
-import { Loader2 } from 'lucide-react';
+import { Loader2, Settings } from 'lucide-react';
 import { useTelegram } from '@/hooks/use-telegram';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import PrioritiesForm from '@/components/PrioritiesForm';
 
 export default function ProfilePage() {
   const [_, navigate] = useLocation();
@@ -123,40 +126,59 @@ export default function ProfilePage() {
               defaultUserId={activeUserId}
             />
             
-            <div className="mt-6">
-              <h3 className="text-md font-medium mb-3">Данные профиля</h3>
-              <ProfileForm 
-                existingProfile={profile} 
-                userId={activeUserId || ''}
-                onSuccess={handleProfileSubmitSuccess}
-              />
-            </div>
-
-            {profile && (
-              <div className="mt-6">
-                <Separator className="my-4" />
-                
-                <h3 className="text-sm font-medium mb-3">Другие действия</h3>
-                
-                <div className="space-y-3">
-                  <Button 
-                    variant="outline" 
-                    className="w-full text-telegram-blue border-telegram-blue hover:bg-blue-50"
-                    onClick={() => navigate('/tours')}
-                  >
-                    Перейти к просмотру туров
-                  </Button>
-                  
-                  <Button 
-                    variant="outline" 
-                    className="w-full text-telegram-blue border-telegram-blue hover:bg-blue-50"
-                    onClick={() => navigate('/watchlist')}
-                  >
-                    Управление желаниями
-                  </Button>
+            <Tabs defaultValue="profile" className="mt-4">
+              <TabsList className="grid w-full grid-cols-2">
+                <TabsTrigger value="profile">Профиль</TabsTrigger>
+                <TabsTrigger value="priorities">
+                  <Settings className="w-4 h-4 mr-2" />
+                  Приоритеты
+                </TabsTrigger>
+              </TabsList>
+              
+              <TabsContent value="profile" className="mt-4">
+                <div className="mt-6">
+                  <h3 className="text-md font-medium mb-3">Данные профиля</h3>
+                  <ProfileForm 
+                    existingProfile={profile} 
+                    userId={activeUserId || ''}
+                    onSuccess={handleProfileSubmitSuccess}
+                  />
                 </div>
-              </div>
-            )}
+
+                {profile && (
+                  <div className="mt-6">
+                    <Separator className="my-4" />
+                    
+                    <h3 className="text-sm font-medium mb-3">Другие действия</h3>
+                    
+                    <div className="space-y-3">
+                      <Button 
+                        variant="outline" 
+                        className="w-full text-telegram-blue border-telegram-blue hover:bg-blue-50"
+                        onClick={() => navigate('/tours')}
+                      >
+                        Перейти к просмотру туров
+                      </Button>
+                      
+                      <Button 
+                        variant="outline" 
+                        className="w-full text-telegram-blue border-telegram-blue hover:bg-blue-50"
+                        onClick={() => navigate('/watchlist')}
+                      >
+                        Управление желаниями
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </TabsContent>
+              
+              <TabsContent value="priorities" className="mt-4">
+                <PrioritiesForm 
+                  userId={activeUserId || ''}
+                  priorities={profile?.priorities || {}}
+                />
+              </TabsContent>
+            </Tabs>
           </>
         )}
       </main>
