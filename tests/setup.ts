@@ -1,3 +1,5 @@
+import { jest } from '@jest/globals';
+
 // Setup test environment
 process.env.NODE_ENV = 'test';
 process.env.DATABASE_URL = 'postgresql://test:test@localhost:5432/tourtinder_test';
@@ -16,6 +18,14 @@ jest.mock('ioredis', () => {
   const Redis = jest.requireActual('ioredis-mock');
   return Redis;
 });
+
+// Extend global type
+declare global {
+  var testHelpers: {
+    generateUserId: () => string;
+    generateChatId: () => string;
+  };
+}
 
 // Global test utilities
 global.testHelpers = {

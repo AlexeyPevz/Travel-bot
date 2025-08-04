@@ -18,12 +18,12 @@ export default {
   },
   setupFilesAfterEnv: ['<rootDir>/tests/setup.ts'],
   testTimeout: 10000,
-  globals: {
-    'ts-jest': {
+  transform: {
+    '^.+\\.tsx?$': ['ts-jest', {
       tsconfig: {
         esModuleInterop: true,
         allowSyntheticDefaultImports: true
       }
-    }
+    }]
   }
 };

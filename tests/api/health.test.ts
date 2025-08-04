@@ -1,13 +1,13 @@
 import request from 'supertest';
 import express from 'express';
-import { setupRoutes } from '../../server/routes';
+import { registerRoutes } from '../../server/routes';
 
 describe('Health Check API', () => {
   let app: express.Express;
 
-  beforeAll(() => {
+  beforeAll(async () => {
     app = express();
-    setupRoutes(app);
+    await registerRoutes(app);
   });
 
   describe('GET /api/health', () => {

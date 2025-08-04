@@ -1,11 +1,11 @@
 import request from 'supertest';
 import express from 'express';
-import { setupRoutes } from '../../server/routes';
+import { registerRoutes } from '../../server/routes';
 import { db } from '../../db';
-import { profiles, travelRequests, tourCache, watchlists } from '@shared/schema';
+import { profiles, watchlists } from '@shared/schema';
 import { eq } from 'drizzle-orm';
 import { startBot } from '../../server/bot';
-import { redis } from '../../server/services/cache';
+import redis from '../../server/services/cache';
 
 describe('Tour Booking Integration', () => {
   let app: express.Express;
@@ -15,7 +15,7 @@ describe('Tour Booking Integration', () => {
   beforeAll(async () => {
     app = express();
     app.use(express.json());
-    server = await setupRoutes(app);
+    server = await registerRoutes(app);
     
     // Ensure clean state
     await cleanupTestData();

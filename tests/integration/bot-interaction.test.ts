@@ -2,7 +2,7 @@ import TelegramBot from 'node-telegram-bot-api';
 import { handleCommand, handleTextMessage } from '../../server/bot/handlers';
 import { getUserState, setUserState, resetUserState, FSM_STATES } from '../../server/bot/fsm';
 import { db } from '../../db';
-import { profiles, travelRequests } from '@shared/schema';
+import { profiles } from '@shared/schema';
 import { eq } from 'drizzle-orm';
 import { searchTours } from '../../server/providers';
 

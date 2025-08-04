@@ -1,8 +1,8 @@
 import request from 'supertest';
 import express from 'express';
-import { setupRoutes } from '../../server/routes';
+import { registerRoutes } from '../../server/routes';
 import { db } from '../../db';
-import { profiles, travelRequests, tourCache } from '@shared/schema';
+import { profiles } from '@shared/schema';
 import { eq } from 'drizzle-orm';
 
 describe('Tours API', () => {
