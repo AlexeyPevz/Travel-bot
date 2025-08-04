@@ -5,6 +5,10 @@ import { getAllTours } from '../services/toursService';
 import { createReferralCode, addReferral } from '../services/referral';
 import { scheduleTourNotification } from '../services/scheduler';
 import { sendIntroCards } from './utils/onboarding';
+import { analyzeTourRequest } from '../services/openrouter';
+import { db } from '../../db';
+import { profiles, monitoringTasks, groupProfiles } from '@shared/schema';
+import { eq } from 'drizzle-orm';
 
 export async function handleCommand(
   bot: TelegramBot, 
@@ -39,6 +43,169 @@ export async function handleCommand(
     console.error(`Error handling command ${command}:`, error);
     await bot.sendMessage(chatId, 'Произошла ошибка при обработке команды. Пожалуйста, попробуйте еще раз.');
   }
+}
+
+/**
+ * Обработка свободного текстового запроса на поиск туров
+ */
+async function handleFreeTextTourRequest(
+  bot: TelegramBot,
+  chatId: number,
+  userId: string,
+  text: string
+): Promise<void> {
+  try {
+    await bot.sendMessage(chatId, '🔍 Анализирую ваш запрос...');
+    
+    // Анализируем текст с помощью AI
+    const preferences = await analyzeTourRequest(text);
+    
+    // Сохраняем или обновляем профиль
+    const [existingProfile] = await db.select()
+      .from(profiles)
+      .where(eq(profiles.userId, userId))
+      .limit(1);
+    
+    if (existingProfile) {
+      await db.update(profiles)
+        .set({
+          vacationType: preferences.vacationType || existingProfile.vacationType,
+          countries: preferences.countries || existingProfile.countries,
+          budget: preferences.budget || existingProfile.budget,
+          peopleCount: preferences.peopleCount || existingProfile.peopleCount,
+          priorities: preferences.priorities || existingProfile.priorities,
+          updatedAt: new Date()
+        })
+        .where(eq(profiles.userId, userId));
+    } else {
+      await db.insert(profiles)
+        .values({
+          userId,
+          vacationType: preferences.vacationType,
+          countries: preferences.countries,
+          budget: preferences.budget,
+          peopleCount: preferences.peopleCount || 2,
+          priorities: preferences.priorities
+        });
+    }
+    
+    // Формируем ответ
+    let message = '✅ Понял ваш запрос!\n\n';
+    
+    if (preferences.countries && preferences.countries.length > 0) {
+      message += `📍 Направления: ${preferences.countries.join(', ')}\n`;
+    }
+    if (preferences.budget) {
+      message += `💰 Бюджет: ${preferences.budget.toLocaleString('ru-RU')} ₽\n`;
+    }
+    if (preferences.peopleCount) {
+      message += `👥 Количество человек: ${preferences.peopleCount}\n`;
+    }
+    if (preferences.vacationType) {
+      const types: Record<string, string> = {
+        beach: 'Пляжный отдых',
+        active: 'Активный отдых',
+        cultural: 'Культурный туризм',
+        family: 'Семейный отдых'
+      };
+      message += `🏖 Тип отдыха: ${types[preferences.vacationType] || preferences.vacationType}\n`;
+    }
+    
+    message += '\nХотите настроить важность параметров для более точного подбора?';
+    
+    const keyboard = {
+      inline_keyboard: [
+        [
+          { text: '⚙️ Настроить веса', callback_data: 'setup_weights' },
+          { text: '🔍 Искать туры', callback_data: 'search_tours_now' }
+        ],
+        [
+          { text: '📝 Заполнить полную анкету', callback_data: 'start_profile' }
+        ]
+      ]
+    };
+    
+    await bot.sendMessage(chatId, message, { reply_markup: keyboard });
+    
+    // Создаем задачу мониторинга
+    await db.insert(monitoringTasks)
+      .values({
+        userId,
+        profileId: existingProfile?.id,
+        taskType: 'profile_monitor',
+        nextRunAt: new Date(Date.now() + 30 * 60 * 1000), // Через 30 минут
+        status: 'active'
+      })
+      .onConflictDoNothing();
+    
+  } catch (error) {
+    console.error('Error handling free text request:', error);
+    await bot.sendMessage(
+      chatId, 
+      'Не удалось проанализировать ваш запрос. Попробуйте описать более подробно или используйте /start для заполнения анкеты.'
+    );
+  }
+}
+
+/**
+ * Отображение интерфейса настройки весов параметров
+ */
+async function showWeightsSetup(
+  bot: TelegramBot,
+  chatId: number,
+  userId: string
+): Promise<void> {
+  const message = `⚙️ *Настройка важности параметров*
+
+Оцените важность каждого параметра от 0 до 10:
+• 0 - совсем не важно
+• 5 - умеренно важно  
+• 10 - критически важно
+
+Текущие настройки:`;
+
+  const [profile] = await db.select()
+    .from(profiles)
+    .where(eq(profiles.userId, userId))
+    .limit(1);
+
+  const defaultWeights = {
+    starRating: 5,
+    beachLine: 5,
+    mealType: 5,
+    price: 7,
+    hotelRating: 5,
+    location: 5,
+    familyFriendly: 5
+  };
+
+  const weights = profile?.priorities || defaultWeights;
+  
+  const weightLabels: Record<string, string> = {
+    starRating: '⭐ Звездность отеля',
+    beachLine: '🏖 Линия пляжа',
+    mealType: '🍽 Тип питания',
+    price: '💰 Цена',
+    hotelRating: '📊 Рейтинг отеля',
+    location: '📍 Расположение',
+    familyFriendly: '👨‍👩‍👧‍👦 Для семей с детьми'
+  };
+
+  const keyboard = {
+    inline_keyboard: Object.entries(weights).map(([key, value]) => [
+      { text: weightLabels[key] || key, callback_data: `weight_label_${key}` },
+      { text: '➖', callback_data: `weight_dec_${key}` },
+      { text: String(value), callback_data: `weight_val_${key}` },
+      { text: '➕', callback_data: `weight_inc_${key}` }
+    ]).concat([
+      [{ text: '💾 Сохранить', callback_data: 'save_weights' }]
+    ])
+  };
+
+  await bot.sendMessage(chatId, message, {
+    parse_mode: 'Markdown',
+    reply_markup: keyboard
+  });
 }
 
 export async function handleDeepLink(
@@ -400,7 +567,10 @@ export async function handleMessage(
     const messageText = msg.text || '';
     
     if (!state || state.state === FSM_STATES.IDLE) {
-      // No active conversation
+      // Если нет активного диалога, пробуем проанализировать текст как запрос на туры
+      if (messageText.length > 10) { // Минимальная длина для анализа
+        await handleFreeTextTourRequest(bot, chatId, userId, messageText);
+      }
       return;
     }
     
@@ -712,6 +882,34 @@ export async function handleCallbackQuery(
     // Acknowledge callback query
     await bot.answerCallbackQuery(callbackQuery.id);
     
+    // Обработка настройки весов
+    if (data === 'setup_weights') {
+      await showWeightsSetup(bot, chatId, userId);
+      return;
+    }
+    
+    if (data.startsWith('weight_')) {
+      await handleWeightAdjustment(bot, chatId, userId, data, callbackQuery);
+      return;
+    }
+    
+    if (data === 'save_weights') {
+      await bot.sendMessage(chatId, '✅ Настройки важности сохранены!');
+      return;
+    }
+    
+    if (data === 'search_tours_now') {
+      await bot.sendMessage(chatId, '🔍 Ищу туры по вашим параметрам...');
+      // TODO: Запустить поиск туров
+      return;
+    }
+    
+    // Обработка голосования за туры в группах
+    if (data.startsWith('vote_')) {
+      await handleGroupTourVote(bot, chatId, userId, data);
+      return;
+    }
+    
     if (data === 'start_profile') {
       // Start profile creation
       setUserState(userId, {
@@ -907,5 +1105,102 @@ export async function handleCallbackQuery(
       chatId,
       'Произошла ошибка при обработке запроса. Пожалуйста, попробуйте еще раз или используйте /start, чтобы начать заново.'
     );
+  }
+}
+
+/**
+ * Обработка изменения весов параметров
+ */
+async function handleWeightAdjustment(
+  bot: TelegramBot,
+  chatId: number,
+  userId: string,
+  data: string,
+  callbackQuery: TelegramBot.CallbackQuery
+): Promise<void> {
+  const [_, action, param] = data.split('_');
+  
+  if (action === 'label') {
+    // Просто показываем описание параметра
+    return;
+  }
+  
+  const [profile] = await db.select()
+    .from(profiles)
+    .where(eq(profiles.userId, userId))
+    .limit(1);
+  
+  const weights = profile?.priorities || {
+    starRating: 5,
+    beachLine: 5,
+    mealType: 5,
+    price: 7,
+    hotelRating: 5,
+    location: 5,
+    familyFriendly: 5
+  };
+  
+  const currentValue = weights[param] || 5;
+  let newValue = currentValue;
+  
+  if (action === 'inc' && currentValue < 10) {
+    newValue = currentValue + 1;
+  } else if (action === 'dec' && currentValue > 0) {
+    newValue = currentValue - 1;
+  }
+  
+  if (newValue !== currentValue) {
+    weights[param] = newValue;
+    
+    // Сохраняем обновленные веса
+    await db.update(profiles)
+      .set({ priorities: weights, updatedAt: new Date() })
+      .where(eq(profiles.userId, userId));
+    
+    // Обновляем сообщение с клавиатурой
+    await showWeightsSetup(bot, chatId, userId);
+  }
+}
+
+/**
+ * Обработка голосования за тур в группе
+ */
+async function handleGroupTourVote(
+  bot: TelegramBot,
+  chatId: number,
+  userId: string,
+  data: string
+): Promise<void> {
+  const parts = data.split('_');
+  const vote = parts[1] as 'yes' | 'no' | 'maybe';
+  const tourId = parseInt(parts[2]);
+  
+  // Получаем группу
+  const [group] = await db.select()
+    .from(groupProfiles)
+    .where(eq(groupProfiles.chatId, chatId.toString()))
+    .limit(1);
+  
+  if (!group) {
+    await bot.sendMessage(chatId, 'Ошибка: группа не найдена');
+    return;
+  }
+  
+  // Импортируем функцию из сервиса групп
+  const { handleGroupVote, sendVotingSummary } = await import('../services/groups');
+  
+  const voteCount = await handleGroupVote(group.id, tourId, userId, vote);
+  
+  const voteEmojis = { yes: '✅', no: '❌', maybe: '🤔' };
+  const message = `${voteEmojis[vote]} Ваш голос учтен!\n\nТекущие результаты:\n✅ За: ${voteCount.yes}\n❌ Против: ${voteCount.no}\n🤔 Не определились: ${voteCount.maybe}`;
+  
+  await bot.sendMessage(chatId, message);
+  
+  // Если проголосовали все участники, отправляем итоги
+  const totalVotes = voteCount.yes + voteCount.no + voteCount.maybe;
+  const memberCount = (group.memberIds as string[]).length;
+  
+  if (totalVotes >= memberCount) {
+    await sendVotingSummary(bot, chatId.toString(), group.id, tourId);
   }
 }
