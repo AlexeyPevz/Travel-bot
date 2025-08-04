@@ -3,6 +3,7 @@ import { registerRoutes } from "./routes.js";
 import { setupVite, serveStatic, log } from "./vite.js";
 import { setupSecurity, sanitizeBody } from "./middleware/security.js";
 import { correlationIdMiddleware } from "./middleware/tracing.js";
+import { dynamicRateLimiter } from "./middleware/rateLimiter.js";
 import logger, { stream } from "./utils/logger.js";
 import morgan from "morgan";
 
@@ -20,6 +21,9 @@ app.use(morgan('combined', { stream }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 app.use(sanitizeBody);
+
+// Apply rate limiting to all API routes
+app.use('/api', dynamicRateLimiter);
 
 app.use((req, res, next) => {
   const start = Date.now();

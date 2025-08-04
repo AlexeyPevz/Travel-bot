@@ -2,6 +2,7 @@ import axios from 'axios';
 import { aiLogger } from '../utils/logger';
 
 const OPENROUTER_API_URL = 'https://openrouter.ai/api/v1/chat/completions';
+const YANDEX_GPT_API_URL = 'https://llm.api.cloud.yandex.net/foundationModels/v1/completion';
 
 // Free models available on OpenRouter
 const FREE_MODELS = [
@@ -11,6 +12,15 @@ const FREE_MODELS = [
   'gryphe/mythomist-7b:free',
   'nousresearch/nous-capybara-7b:free'
 ];
+
+// AI Provider configuration
+interface AIProvider {
+  name: string;
+  enabled: boolean;
+  models?: string[];
+  apiKey?: string;
+  endpoint?: string;
+}
 
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant';
@@ -30,80 +40,266 @@ export interface TourPreferences {
 }
 
 /**
- * Анализ текстового запроса пользователя для извлечения параметров тура
+ * Детальный промпт для анализа туристических запросов
  */
-export async function analyzeTourRequest(userMessage: string): Promise<TourPreferences> {
-  const apiKey = process.env.OPENROUTER_API_KEY;
-  
-  if (!apiKey) {
-    aiLogger.warn('OpenRouter API key not found, using basic text parsing');
-    return parseBasicTourRequest(userMessage);
+const TOUR_ANALYSIS_PROMPT = `Ты - профессиональный AI-ассистент туристического агентства с многолетним опытом подбора туров.
+
+ТВОЯ ЗАДАЧА:
+Проанализировать текстовое сообщение клиента и извлечь все параметры для поиска идеального тура.
+
+ВАЖНЫЕ ПРАВИЛА:
+1. Извлекай ВСЕ упомянутые параметры, даже косвенные упоминания
+2. Интерпретируй пожелания клиента, учитывая контекст и скрытые потребности
+3. Если клиент упоминает характеристики отеля - преобразуй их в приоритеты
+4. Учитывай сезонность и особенности направлений
+5. При упоминании бюджета "на человека" или "на двоих" - правильно интерпретируй
+
+ПАРАМЕТРЫ ДЛЯ ИЗВЛЕЧЕНИЯ:
+- vacationType: тип отдыха
+  * beach - пляжный (море, пляж, купание, загорать)
+  * active - активный (спорт, горы, лыжи, дайвинг, серфинг)
+  * cultural - культурный (экскурсии, достопримечательности, музеи)
+  * relaxing - спокойный (спа, релакс, тишина, уединение)
+  * family - семейный (с детьми, аквапарк, анимация)
+  * romantic - романтический (медовый месяц, для пары)
+  * adventure - приключения (джунгли, сафари, экстрим)
+
+- countries: массив стран (полные названия на русском)
+  * Распознавай синонимы: ОАЭ/Эмираты/Дубай, Тайланд/Таиланд
+  * При упоминании города определяй страну
+
+- budget: бюджет в рублях (всегда число)
+  * "150к", "150 тыс", "150000" = 150000
+  * Учитывай контекст: "на двоих", "с человека"
+
+- startDate/endDate: даты в формате YYYY-MM-DD
+  * "в июне", "летом" - определяй конкретные даты
+  * "на майские" = примерно 1-10 мая
+  * "новый год" = 29 декабря - 8 января
+
+- duration: длительность в днях
+  * "неделя" = 7, "две недели" = 14
+  * "на выходные" = 2-3
+  * "10 ночей" = 11 дней
+
+- peopleCount: количество человек
+  * "вдвоем", "с мужем/женой" = 2
+  * "с двумя детьми" = минимум 3
+
+- priorities: веса важности параметров (0-10)
+  * starRating: звездность отеля
+    - "хороший отель", "5 звезд" = 8-10
+    - "неважно где жить" = 2-3
+  * beachLine: близость к морю
+    - "первая линия", "у моря" = 10
+    - "недалеко от моря" = 6-7
+  * mealType: тип питания
+    - "все включено", "чтобы не думать о еде" = 9-10
+    - "только завтраки" = 3-4
+  * hotelRating: рейтинг отеля
+    - "по отзывам хороший", "популярный" = 8-9
+  * priceValue: соотношение цена/качество
+    - "бюджетно", "недорого" = 9-10
+    - "цена не важна" = 2-3
+  * roomQuality: качество номеров
+    - "хороший номер", "с видом на море" = 8-9
+  * location: расположение
+    - "в центре", "рядом с..." = 8-9
+  * familyFriendly: для семей с детьми
+    - "с детьми", "детский клуб" = 9-10
+  * adults: только для взрослых
+    - "без детей", "тихий" = 9-10
+  * animation: анимация и развлечения
+    - "весело", "дискотеки" = 8-9
+    - "тихо", "спокойно" = 1-2
+
+ПРИМЕРЫ АНАЛИЗА:
+
+Запрос: "Хочу в Турцию на море, отель 5 звезд с хорошим питанием, первая линия. Бюджет до 200 тысяч на двоих на неделю в июне."
+Ответ: {
+  "vacationType": "beach",
+  "countries": ["Турция"],
+  "budget": 200000,
+  "startDate": "2024-06-01",
+  "endDate": "2024-06-08",
+  "duration": 7,
+  "peopleCount": 2,
+  "priorities": {
+    "starRating": 10,
+    "beachLine": 10,
+    "mealType": 9,
+    "hotelRating": 7,
+    "priceValue": 6,
+    "roomQuality": 7,
+    "location": 6,
+    "familyFriendly": 5,
+    "adults": 5
+  }
+}
+
+Запрос: "Хочется куда-нибудь слетать отдохнуть недорого"
+Ответ: {
+  "vacationType": "relaxing",
+  "budget": 100000,
+  "peopleCount": 2,
+  "priorities": {
+    "starRating": 5,
+    "beachLine": 5,
+    "mealType": 5,
+    "hotelRating": 5,
+    "priceValue": 10,
+    "roomQuality": 4,
+    "location": 5,
+    "familyFriendly": 5,
+    "adults": 5
+  }
+}
+
+ВСЕГДА возвращай валидный JSON объект.`;
+
+/**
+ * Пытается получить ответ от AI провайдера с fallback механизмом
+ */
+async function tryAIProvider(
+  messages: ChatMessage[],
+  provider: AIProvider,
+  options: {
+    temperature?: number;
+    maxTokens?: number;
+    responseFormat?: any;
+  } = {}
+): Promise<string | null> {
+  if (!provider.enabled) {
+    return null;
   }
 
   try {
-    const messages: ChatMessage[] = [
-      {
-        role: 'system',
-        content: `Ты - помощник по подбору туров. Проанализируй сообщение пользователя и извлеки параметры для поиска тура.
-        Верни JSON объект со следующими полями (если информация есть в сообщении):
-        - vacationType: тип отдыха (beach, active, cultural, relaxing, family)
-        - countries: массив стран
-        - budget: бюджет в рублях
-        - startDate: дата начала в формате YYYY-MM-DD
-        - endDate: дата окончания в формате YYYY-MM-DD
-        - duration: длительность в днях
-        - peopleCount: количество человек
-        - priorities: объект с приоритетами (starRating, beachLine, mealType, price) от 0 до 10
-        
-        Примеры:
-        "Хочу на море в Турцию, 4 звезды, первая линия, все включено, бюджет 150000 на двоих" ->
-        {
-          "vacationType": "beach",
-          "countries": ["Турция"],
-          "budget": 150000,
-          "peopleCount": 2,
-          "priorities": {
-            "starRating": 7,
-            "beachLine": 10,
-            "mealType": 9,
-            "price": 7
-          }
-        }`
-      },
-      {
-        role: 'user',
-        content: userMessage
-      }
-    ];
+    if (provider.name === 'openrouter' && provider.apiKey) {
+      // Пробуем каждую модель из списка
+      for (const model of (provider.models || FREE_MODELS)) {
+        try {
+          aiLogger.info(`Trying OpenRouter with model: ${model}`);
+          
+          const response = await axios.post(
+            OPENROUTER_API_URL,
+            {
+              model,
+              messages,
+              temperature: options.temperature || 0.3,
+              max_tokens: options.maxTokens || 500,
+              ...(options.responseFormat && { response_format: options.responseFormat })
+            },
+            {
+              headers: {
+                'Authorization': `Bearer ${provider.apiKey}`,
+                'Content-Type': 'application/json',
+                'HTTP-Referer': process.env.APP_URL || 'https://travel-bot.com',
+                'X-Title': 'AI Travel Agent Bot'
+              },
+              timeout: 15000 // 15 секунд таймаут
+            }
+          );
 
-    const response = await axios.post(
-      OPENROUTER_API_URL,
-      {
-        model: FREE_MODELS[0], // Use the first free model
-        messages,
-        response_format: { type: 'json_object' },
-        temperature: 0.3,
-        max_tokens: 500
-      },
-      {
-        headers: {
-          'Authorization': `Bearer ${apiKey}`,
-          'Content-Type': 'application/json',
-          'HTTP-Referer': process.env.APP_URL || 'https://travel-bot.com',
-          'X-Title': 'AI Travel Agent Bot'
+          const content = response.data.choices[0]?.message?.content;
+          if (content) {
+            aiLogger.info(`Successfully got response from OpenRouter model: ${model}`);
+            return content;
+          }
+        } catch (modelError: any) {
+          aiLogger.warn(`Failed with model ${model}: ${modelError.message}`);
+          continue; // Пробуем следующую модель
         }
       }
-    );
+    } else if (provider.name === 'yandexgpt' && provider.apiKey) {
+      aiLogger.info('Trying YandexGPT as fallback');
+      
+      const response = await axios.post(
+        YANDEX_GPT_API_URL,
+        {
+          modelUri: `gpt://${provider.apiKey}/yandexgpt-lite`,
+          completionOptions: {
+            stream: false,
+            temperature: options.temperature || 0.3,
+            maxTokens: options.maxTokens || 500
+          },
+          messages: messages.map(msg => ({
+            role: msg.role,
+            text: msg.content
+          }))
+        },
+        {
+          headers: {
+            'Authorization': `Bearer ${provider.apiKey}`,
+            'Content-Type': 'application/json'
+          },
+          timeout: 15000
+        }
+      );
 
-    const content = response.data.choices[0]?.message?.content;
-    if (content) {
-      return JSON.parse(content);
+      const content = response.data.result?.alternatives?.[0]?.message?.text;
+      if (content) {
+        aiLogger.info('Successfully got response from YandexGPT');
+        return content;
+      }
     }
-  } catch (error) {
-    aiLogger.error('Error analyzing tour request with OpenRouter:', error);
+  } catch (error: any) {
+    aiLogger.error(`Error with ${provider.name}:`, error.message);
   }
 
-  // Fallback to basic parsing
+  return null;
+}
+
+/**
+ * Анализ текстового запроса пользователя для извлечения параметров тура
+ * с fallback цепочкой: OpenRouter (бесплатные модели) -> YandexGPT -> базовый парсинг
+ */
+export async function analyzeTourRequest(userMessage: string): Promise<TourPreferences> {
+  const providers: AIProvider[] = [
+    {
+      name: 'openrouter',
+      enabled: !!process.env.OPENROUTER_API_KEY,
+      apiKey: process.env.OPENROUTER_API_KEY,
+      models: FREE_MODELS // Пробуем все бесплатные модели
+    },
+    {
+      name: 'yandexgpt',
+      enabled: !!process.env.YANDEX_GPT_API_KEY,
+      apiKey: process.env.YANDEX_GPT_API_KEY
+    }
+  ];
+
+  const messages: ChatMessage[] = [
+    {
+      role: 'system',
+      content: TOUR_ANALYSIS_PROMPT
+    },
+    {
+      role: 'user',
+      content: userMessage
+    }
+  ];
+
+  // Пробуем каждого провайдера по очереди
+  for (const provider of providers) {
+    const result = await tryAIProvider(messages, provider, {
+      temperature: 0.3,
+      responseFormat: { type: 'json_object' }
+    });
+
+    if (result) {
+      try {
+        const parsed = JSON.parse(result);
+        aiLogger.info(`Successfully parsed tour request using ${provider.name}`);
+        return parsed;
+      } catch (parseError) {
+        aiLogger.error(`Failed to parse JSON from ${provider.name}:`, parseError);
+        continue;
+      }
+    }
+  }
+
+  // Если все AI провайдеры не сработали, используем базовый парсинг
+  aiLogger.warn('All AI providers failed, using basic text parsing');
   return parseBasicTourRequest(userMessage);
 }
 
@@ -261,6 +457,23 @@ function parseBasicTourRequest(text: string): TourPreferences {
 }
 
 /**
+ * Промпт для анализа соответствия тура
+ */
+const TOUR_MATCH_ANALYSIS_PROMPT = `Ты - опытный турагент с 15-летним стажем. Твоя задача - объяснить клиенту, насколько конкретный тур соответствует его запросу.
+
+ПРАВИЛА:
+1. Будь честным - укажи как плюсы, так и минусы
+2. Используй простой и понятный язык
+3. Фокусируйся на ключевых параметрах важных для клиента
+4. Давай конкретные рекомендации
+5. Ответ должен быть 2-3 предложения
+
+ПРИМЕРЫ ХОРОШИХ ОТВЕТОВ:
+- "Отличный выбор для пляжного отдыха: 5*, первая линия, все включено. Единственный минус - цена немного выше бюджета (на 10%), но качество того стоит."
+- "Тур идеально подходит по цене и питанию, но отель 3* может не соответствовать ожиданиям по уровню сервиса. Рекомендую рассмотреть, если готовы к компромиссу."
+- "Превосходное соответствие всем критериям: Турция, первая линия, в рамках бюджета. Отель получает отличные отзывы за детскую анимацию."`;
+
+/**
  * Расчет соответствия тура профилю пользователя с учетом весов
  */
 export async function calculateTourMatchScore(
@@ -268,8 +481,6 @@ export async function calculateTourMatchScore(
   preferences: TourPreferences,
   priorities: Record<string, number>
 ): Promise<{ score: number; details: Record<string, number>; analysis: string }> {
-  const apiKey = process.env.OPENROUTER_API_KEY;
-  
   // Базовый расчет без AI
   const details: Record<string, number> = {};
   let totalWeight = 0;
@@ -302,17 +513,30 @@ export async function calculateTourMatchScore(
 
   // Соответствие по типу питания
   if (tour.mealType && priorities.mealType) {
-    const mealScore = tour.mealType.includes('all') || tour.mealType.includes('ai') ? 100 : 60;
+    const mealScore = tour.mealType.toLowerCase().includes('все включено') || 
+                      tour.mealType.toLowerCase().includes('all inclusive') || 
+                      tour.mealType.toLowerCase().includes('ai') ? 100 : 
+                      tour.mealType.toLowerCase().includes('полупансион') ? 70 : 
+                      tour.mealType.toLowerCase().includes('завтрак') ? 50 : 30;
     details.mealType = mealScore;
     weightedScore += mealScore * priorities.mealType;
     totalWeight += priorities.mealType;
   }
 
+  // Соответствие по рейтингу отеля
+  if (tour.hotelRating && priorities.hotelRating) {
+    const ratingScore = (tour.hotelRating / 10) * 100;
+    details.hotelRating = ratingScore;
+    weightedScore += ratingScore * priorities.hotelRating;
+    totalWeight += priorities.hotelRating;
+  }
+
   // Соответствие по стране
-  if (preferences.countries && tour.destination) {
+  if (preferences.countries && tour.country) {
     const locationWeight = priorities.location || 10;
     const locationScore = preferences.countries.some(country => 
-      tour.destination.toLowerCase().includes(country.toLowerCase())
+      tour.country.toLowerCase().includes(country.toLowerCase()) ||
+      country.toLowerCase().includes(tour.country.toLowerCase())
     ) ? 100 : 0;
     details.location = locationScore;
     weightedScore += locationScore * locationWeight;
@@ -321,43 +545,63 @@ export async function calculateTourMatchScore(
 
   const finalScore = totalWeight > 0 ? Math.round(weightedScore / totalWeight) : 50;
 
-  // Генерация анализа с помощью AI если доступен ключ
+  // Генерация анализа с помощью AI
   let analysis = `Тур соответствует вашим критериям на ${finalScore}%.`;
   
-  if (apiKey) {
-    try {
-      const messages: ChatMessage[] = [
-        {
-          role: 'system',
-          content: 'Ты - эксперт по турам. Кратко объясни, почему этот тур подходит или не подходит пользователю (1-2 предложения).'
-        },
-        {
-          role: 'user',
-          content: `Тур: ${tour.title}, ${tour.starRating}*, ${tour.mealType}, ${tour.price}₽
-          Предпочтения: ${JSON.stringify(preferences)}
-          Оценка соответствия: ${finalScore}%`
-        }
-      ];
+  const providers: AIProvider[] = [
+    {
+      name: 'openrouter',
+      enabled: !!process.env.OPENROUTER_API_KEY,
+      apiKey: process.env.OPENROUTER_API_KEY,
+      models: FREE_MODELS
+    },
+    {
+      name: 'yandexgpt',
+      enabled: !!process.env.YANDEX_GPT_API_KEY,
+      apiKey: process.env.YANDEX_GPT_API_KEY
+    }
+  ];
 
-      const response = await axios.post(
-        OPENROUTER_API_URL,
-        {
-          model: FREE_MODELS[0],
-          messages,
-          temperature: 0.7,
-          max_tokens: 100
-        },
-        {
-          headers: {
-            'Authorization': `Bearer ${apiKey}`,
-            'Content-Type': 'application/json'
-          }
-        }
-      );
+  const messages: ChatMessage[] = [
+    {
+      role: 'system',
+      content: TOUR_MATCH_ANALYSIS_PROMPT
+    },
+    {
+      role: 'user',
+      content: `Тур: ${tour.title || 'Без названия'}
+Страна: ${tour.country}
+Отель: ${tour.hotelName}, ${tour.starRating}*
+Линия пляжа: ${tour.beachLine || 'не указана'}
+Питание: ${tour.mealType}
+Цена: ${tour.price}₽
+Рейтинг отеля: ${tour.hotelRating || 'нет данных'}/10
 
-      analysis = response.data.choices[0]?.message?.content || analysis;
-    } catch (error) {
-      aiLogger.error('Error generating AI analysis:', error);
+Запрос клиента:
+- Страны: ${preferences.countries?.join(', ') || 'любая'}
+- Бюджет: ${preferences.budget || 'не указан'}₽
+- Тип отдыха: ${preferences.vacationType || 'любой'}
+- Важные параметры: ${Object.entries(priorities)
+  .filter(([_, v]) => v > 7)
+  .map(([k, v]) => `${k}(${v}/10)`)
+  .join(', ')}
+
+Оценка соответствия: ${finalScore}%
+Детали: ${JSON.stringify(details)}`
+    }
+  ];
+
+  // Пробуем получить анализ от AI
+  for (const provider of providers) {
+    const result = await tryAIProvider(messages, provider, {
+      temperature: 0.7,
+      maxTokens: 150
+    });
+
+    if (result) {
+      analysis = result;
+      aiLogger.info(`Generated tour analysis using ${provider.name}`);
+      break;
     }
   }
 
