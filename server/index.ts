@@ -2,6 +2,7 @@ import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes.js";
 import { setupVite, serveStatic, log } from "./vite.js";
 import { setupSecurity, sanitizeBody } from "./middleware/security.js";
+import { correlationIdMiddleware } from "./middleware/tracing.js";
 import logger, { stream } from "./utils/logger.js";
 import morgan from "morgan";
 
@@ -10,7 +11,10 @@ const app = express();
 // Security middleware
 setupSecurity(app);
 
-// HTTP request logging
+// Correlation ID middleware (before logging)
+app.use(correlationIdMiddleware);
+
+// HTTP request logging with correlation ID
 app.use(morgan('combined', { stream }));
 
 app.use(express.json());
@@ -75,5 +79,10 @@ app.use((req, res, next) => {
     reusePort: true,
   }, () => {
     log(`serving on port ${port}`);
+    logger.info(`Process ID: ${process.pid}`);
   });
+
+  // Import and setup graceful shutdown
+  const { gracefulShutdown } = await import("./utils/shutdown.js");
+  gracefulShutdown.setServer(server);
 })();

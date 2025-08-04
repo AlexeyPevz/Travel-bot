@@ -1,0 +1,37 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+build/
+*.min.js
+*.min.css
+
+# Cache
+.cache/
+.parcel-cache/
+.vite/
+
+# Logs
+logs/
+*.log
+
+# Environment
+.env
+.env.*
+
+# Documentation
+*.md
+
+# Config files
+tsconfig.json
+.eslintrc.json
+package-lock.json
+pnpm-lock.yaml
+
+# Test coverage
+coverage/
+
+# Generated files
+*.generated.*
+client/dist/

@@ -6,6 +6,7 @@ import { calculateTourMatchScore } from './openrouter';
 import { getBot } from '../bot';
 import TelegramBot from 'node-telegram-bot-api';
 import logger from '../utils/logger';
+import { onShutdown } from '../utils/shutdown';
 
 // Минимальный порог соответствия для отправки уведомления
 const NOTIFICATION_THRESHOLD = 85;
@@ -16,31 +17,36 @@ const NOTIFICATION_THRESHOLD = 85;
 export async function startMonitoring() {
   logger.info('Starting tour monitoring service...');
   
-  // Загружаем активные задачи мониторинга из БД и добавляем в очереди
   try {
-    const activeTasks = await db.select()
+    // Получаем все активные задачи мониторинга
+    const activeTasks = await db
+      .select()
       .from(monitoringTasks)
-      .where(eq(monitoringTasks.status, 'active'));
-    
+      .where(eq(monitoringTasks.isActive, true));
+
     logger.info(`Found ${activeTasks.length} active monitoring tasks`);
-    
-    // Импортируем динамически чтобы избежать циклической зависимости
-    const { scheduleMonitoring } = await import('./queues');
-    
+
+    // Перезапускаем задачи
     for (const task of activeTasks) {
-      await scheduleMonitoring(
-        task.userId,
-        task.profileId,
-        task.taskType as any,
-        undefined,
-        task.groupId || undefined
-      );
+      const jobId = `monitoring-${task.userId}-${task.requestId}`;
+      
+      // Проверяем, нет ли уже такой задачи
+      const existingJob = await monitoringQueue.getJob(jobId);
+      if (!existingJob) {
+        await scheduleMonitoring(task.userId, task.requestId, task.interval);
+      }
     }
-    
+
     logger.info('All monitoring tasks scheduled');
   } catch (error) {
     logger.error('Error starting monitoring service:', error);
   }
+
+  // Register shutdown handler
+  onShutdown('monitoring-service', async () => {
+    logger.info('Stopping monitoring service...');
+    // Any cleanup specific to monitoring service
+  });
 }
 
 /**

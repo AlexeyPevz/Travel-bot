@@ -57,6 +57,10 @@ export async function startBot(server: Server): Promise<TelegramBot> {
     bot = new TelegramBot(token, options);
     console.log('Telegram bot started');
     
+    // Register bot for graceful shutdown
+    const { gracefulShutdown } = await import('../utils/shutdown');
+    gracefulShutdown.setBot(bot);
+    
     // Создаем ручной API endpoint для обработки Telegram команд
     // POST /api/telegram/command/:command
     // Например: POST /api/telegram/command/help

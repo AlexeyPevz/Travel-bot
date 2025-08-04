@@ -2,12 +2,16 @@ import { Request, Response, NextFunction } from 'express';
 import { AppError, sendErrorResponse } from '../utils/errors';
 import { ZodError } from 'zod';
 import logger from '../utils/logger';
+import { getCorrelationId } from './tracing';
 
 // Development error handler
 function handleDevelopmentError(err: Error, req: Request, res: Response) {
+  const correlationId = req.correlationId || getCorrelationId();
+  
   logger.error({
     message: err.message,
     stack: err.stack,
+    correlationId,
     path: req.path,
     method: req.method,
     body: req.body,
@@ -22,6 +26,7 @@ function handleDevelopmentError(err: Error, req: Request, res: Response) {
         statusCode: 400,
         timestamp: new Date().toISOString(),
         path: req.path,
+        correlationId,
         details: err.errors
       }
     });
