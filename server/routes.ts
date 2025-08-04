@@ -19,7 +19,7 @@ import {
   watchlistSchema
 } from './validators/schemas';
 import { asyncHandler, NotFoundError, ValidationError } from './utils/errors';
-import apiLogger from '../utils/logger';
+import apiLogger from './utils/logger';
 import { getHealthStatus, getReadinessStatus, getLivenessStatus } from './monitoring/health';
 import { setupMetrics } from './monitoring/metrics';
 import { cache, cacheKeys, CACHE_TTL } from './services/cache';
@@ -61,7 +61,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
    *       503:
    *         description: Service is unhealthy
    */
-  app.get('/api/health', asyncHandler(async (req, res) => {
+  app.get('/api/health', asyncHandler(async (req: any, res: any) => {
     const health = await getHealthStatus();
     res.status(health.status === 'healthy' ? 200 : 503).json(health);
   }));
