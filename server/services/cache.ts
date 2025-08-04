@@ -36,6 +36,7 @@ export const CACHE_TTL = {
   AI_ANALYSIS: 60 * 60 * 24 * 7, // 7 дней
   GROUP_PROFILE: 60 * 60, // 1 час
   RECOMMENDED_TOURS: 15 * 60, // 15 минут
+  REFRESH_TOKEN: 7 * 24 * 60 * 60, // 7 дней
 };
 
 // Генерация ключей кэша

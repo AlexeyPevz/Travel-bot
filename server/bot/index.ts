@@ -1,6 +1,9 @@
 import TelegramBot from 'node-telegram-bot-api';
 import { Server } from 'http';
-import { handleCommand, handleDeepLink, handleMessage, handleCallbackQuery } from './handlers';
+import { handleCommand, handleMessage, handleCallback } from './handlers';
+import { addReferral } from '../services/referral';
+import { storage } from '../storage';
+import { StartCommand } from './commands/start';
 
 // Глобальный экземпляр бота
 let bot: TelegramBot | null = null;
@@ -77,47 +80,64 @@ export async function startBot(server: Server): Promise<TelegramBot> {
         const paramStr = match?.[1];
         
         if (paramStr && paramStr.startsWith('ref_')) {
-          // Handle referral
+          // Handle referral deep link
           const referrerId = paramStr.substring(4);
-          await handleDeepLink(bot, chatId, userId, referrerId);
-        } else {
-          // Regular start command
-          await handleCommand(bot, chatId, userId, '/start');
+          
+          // Check if referrer exists
+          const referrer = await storage.getProfile(referrerId);
+          
+          if (referrer) {
+            // Check if this is a new user
+            const userProfile = await storage.getProfile(userId);
+            
+            if (!userProfile) {
+              // New user, register referral
+              await addReferral(referrerId, userId);
+              
+              await bot.sendMessage(
+                chatId,
+                `Добро пожаловать! Вы перешли по реферальной ссылке от ${referrer.name}. Вы получите бонус после заполнения анкеты.`
+              );
+            }
+          }
         }
+        
+        // Continue with regular start command
+        await handleCommand(bot, chatId, userId, '/start', msg);
       },
       'myrequests': async (msg: TelegramBot.Message) => {
         const chatId = msg.chat.id;
         const userId = msg.from?.id.toString();
         if (userId) {
-          await handleCommand(bot, chatId, userId, '/myrequests');
+          await handleCommand(bot, chatId, userId, '/myrequests', msg);
         }
       },
       'referral': async (msg: TelegramBot.Message) => {
         const chatId = msg.chat.id;
         const userId = msg.from?.id.toString();
         if (userId) {
-          await handleCommand(bot, chatId, userId, '/referral');
+          await handleCommand(bot, chatId, userId, '/referral', msg);
         }
       },
       'help': async (msg: TelegramBot.Message) => {
         const chatId = msg.chat.id;
         const userId = msg.from?.id.toString();
         if (userId) {
-          await handleCommand(bot, chatId, userId, '/help');
+          await handleCommand(bot, chatId, userId, '/help', msg);
         }
       },
       'join': async (msg: TelegramBot.Message) => {
         const chatId = msg.chat.id;
         const userId = msg.from?.id.toString();
         if (userId && msg.chat.type !== 'private') {
-          await handleCommand(bot, chatId, userId, '/join');
+          await handleCommand(bot, chatId, userId, '/join', msg);
         }
       },
       'groupsetup': async (msg: TelegramBot.Message) => {
         const chatId = msg.chat.id;
         const userId = msg.from?.id.toString();
         if (userId && msg.chat.type !== 'private') {
-          await handleCommand(bot, chatId, userId, '/groupsetup');
+          await handleCommand(bot, chatId, userId, '/groupsetup', msg);
         }
       }
     };
@@ -137,19 +157,14 @@ export async function startBot(server: Server): Promise<TelegramBot> {
         const userId = msg.from?.id.toString();
         
         if (userId) {
-          await handleMessage(bot, chatId, userId, msg);
+          await handleMessage(bot, chatId, userId, msg.text, msg);
         }
       }
     });
 
     // Обработчик callback_query (инлайн кнопки)
     bot.on('callback_query', async (callbackQuery) => {
-      const chatId = callbackQuery.message?.chat.id;
-      const userId = callbackQuery.from.id.toString();
-      
-      if (chatId) {
-        await handleCallbackQuery(bot, chatId, userId, callbackQuery);
-      }
+      await handleCallback(bot, callbackQuery);
     });
     
     // Запускаем поллинг только после регистрации всех обработчиков
