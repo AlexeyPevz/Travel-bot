@@ -1,6 +1,6 @@
 import TelegramBot from 'node-telegram-bot-api';
 import { getUserState, setUserState } from '../fsm';
-import botLogger from '../utils/logger';
+import botLogger from '../../utils/logger';
 
 /**
  * Содержание карточек онбординга

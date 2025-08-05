@@ -2,7 +2,8 @@ import { Router } from 'express';
 import { db } from '../../../db';
 import { profiles } from '@shared/schema';
 import { eq } from 'drizzle-orm';
-import { validate, updateProfileSchema } from '../../validators/schemas';
+import { updateProfileSchema } from '../../validators/schemas';
+import { validateBody } from '../../middleware/validation';
 import { asyncHandler, NotFoundError } from '../../utils/errors';
 import { createRequestLogger } from '../../middleware/tracing';
 import { cache, cacheKeys, CACHE_TTL } from '../../services/cache';
@@ -97,7 +98,7 @@ router.get('/:userId', asyncHandler(async (req, res) => {
  *                 profile:
  *                   $ref: '#/components/schemas/Profile'
  */
-router.post('/', validate(updateProfileSchema), asyncHandler(async (req, res) => {
+router.post('/', validateBody(updateProfileSchema), asyncHandler(async (req, res) => {
   const logger = createRequestLogger();
   const profileData = req.body;
   
@@ -134,7 +135,7 @@ router.post('/', validate(updateProfileSchema), asyncHandler(async (req, res) =>
 }));
 
 // Update profile
-router.put('/:userId', validate(updateProfileSchema), asyncHandler(async (req, res) => {
+router.put('/:userId', validateBody(updateProfileSchema), asyncHandler(async (req, res) => {
   const logger = createRequestLogger();
   const { userId } = req.params;
   const updates = req.body;
