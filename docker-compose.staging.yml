@@ -1,0 +1,133 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database for Staging
+  postgres-staging:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: tourtinder_staging
+      POSTGRES_PASSWORD: ${STAGING_DB_PASSWORD:-staging123}
+      POSTGRES_DB: tourtinder_staging
+    volumes:
+      - postgres_staging_data:/var/lib/postgresql/data
+    ports:
+      - "5433:5432"  # Different port to avoid conflicts
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tourtinder_staging"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # Redis Cache for Staging
+  redis-staging:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes --requirepass ${STAGING_REDIS_PASSWORD:-redis_staging123}
+    volumes:
+      - redis_staging_data:/data
+    ports:
+      - "6380:6379"  # Different port to avoid conflicts
+    healthcheck:
+      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # Application for Staging
+  app-staging:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: ${BUILD_TARGET:-production}
+    ports:
+      - "5001:5000"  # Different port for staging
+    environment:
+      NODE_ENV: staging
+      DATABASE_URL: postgresql://tourtinder_staging:${STAGING_DB_PASSWORD:-staging123}@postgres-staging:5432/tourtinder_staging
+      REDIS_HOST: redis-staging
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${STAGING_REDIS_PASSWORD:-redis_staging123}
+      TELEGRAM_TOKEN: ${STAGING_TELEGRAM_TOKEN}
+      OPENROUTER_API_KEY: ${STAGING_OPENROUTER_API_KEY}
+      LEVELTRAVEL_API_KEY: ${STAGING_LEVELTRAVEL_API_KEY}
+      LEVEL_TRAVEL_PARTNER: ${STAGING_LEVEL_TRAVEL_PARTNER:-627387}
+      APP_URL: ${STAGING_APP_URL:-http://staging.localhost:5001}
+      LOG_LEVEL: debug  # More verbose logging for staging
+      # Feature flags for staging
+      ENABLE_EXPERIMENTAL_FEATURES: true
+      ENABLE_DEBUG_MODE: true
+      ENABLE_METRICS: true
+      # Reduced limits for staging
+      RATE_LIMIT_MAX: 200
+      RATE_LIMIT_WINDOW_MS: 900000
+    depends_on:
+      postgres-staging:
+        condition: service_healthy
+      redis-staging:
+        condition: service_healthy
+    volumes:
+      - ./logs/staging:/app/logs
+      - /app/node_modules
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.app-staging.rule=Host(`staging.${DOMAIN:-localhost}`)"
+      - "traefik.http.services.app-staging.loadbalancer.server.port=5000"
+    restart: unless-stopped
+
+  # Nginx for Staging (optional)
+  nginx-staging:
+    image: nginx:alpine
+    ports:
+      - "8080:80"  # Different port for staging
+    volumes:
+      - ./nginx.staging.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - app-staging
+    restart: unless-stopped
+    profiles:
+      - with-nginx
+
+  # Monitoring for Staging (optional)
+  prometheus-staging:
+    image: prom/prometheus:latest
+    volumes:
+      - ./prometheus.staging.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_staging_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+    ports:
+      - "9091:9090"  # Different port for staging
+    restart: unless-stopped
+    profiles:
+      - monitoring
+
+  grafana-staging:
+    image: grafana/grafana:latest
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${STAGING_GRAFANA_PASSWORD:-admin}
+      GF_SERVER_ROOT_URL: http://staging.${DOMAIN:-localhost}:3001
+    volumes:
+      - grafana_staging_data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+    ports:
+      - "3002:3000"  # Different port for staging
+    depends_on:
+      - prometheus-staging
+    restart: unless-stopped
+    profiles:
+      - monitoring
+
+volumes:
+  postgres_staging_data:
+  redis_staging_data:
+  prometheus_staging_data:
+  grafana_staging_data:
+
+networks:
+  default:
+    name: staging_network
+    driver: bridge
