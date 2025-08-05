@@ -290,23 +290,88 @@ export async function generateTelegramWebAppToken(initData: string): Promise<{
  * Верифицирует данные от Telegram Web App
  */
 function verifyTelegramWebAppData(initData: string): any {
-  // TODO: Реализовать верификацию согласно документации Telegram
+  // Реализация верификации согласно документации Telegram
   // https://core.telegram.org/bots/webapps#validating-data-received-via-the-mini-app
   
-  // Временная заглушка для разработки
-  if (process.env.NODE_ENV === 'development') {
-    try {
-      const params = new URLSearchParams(initData);
-      const userStr = params.get('user');
-      if (userStr) {
-        return JSON.parse(userStr);
-      }
-    } catch {
-      // Ignore
+  try {
+    const params = new URLSearchParams(initData);
+    const hash = params.get('hash');
+    
+    if (!hash) {
+      throw new Error('Hash is missing');
     }
+    
+    // Удаляем hash из параметров для проверки
+    params.delete('hash');
+    
+    // Сортируем параметры и формируем строку для проверки
+    const dataCheckString = Array.from(params.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([key, value]) => `${key}=${value}`)
+      .join('\n');
+    
+    // Создаем секретный ключ
+    const botToken = process.env.TELEGRAM_TOKEN;
+    if (!botToken) {
+      throw new Error('TELEGRAM_TOKEN is not set');
+    }
+    
+    const secretKey = crypto
+      .createHmac('sha256', 'WebAppData')
+      .update(botToken)
+      .digest();
+    
+    // Создаем HMAC для проверки
+    const calculatedHash = crypto
+      .createHmac('sha256', secretKey)
+      .update(dataCheckString)
+      .digest('hex');
+    
+    // Проверяем hash
+    if (calculatedHash !== hash) {
+      // В режиме разработки разрешаем обход проверки
+      if (process.env.NODE_ENV === 'development') {
+        console.warn('Telegram WebApp data verification failed in development mode');
+        const userStr = params.get('user');
+        if (userStr) {
+          return JSON.parse(userStr);
+        }
+      }
+      throw new Error('Data verification failed');
+    }
+    
+    // Проверяем срок действия данных (5 минут)
+    const authDate = parseInt(params.get('auth_date') || '0', 10);
+    const currentTime = Math.floor(Date.now() / 1000);
+    if (currentTime - authDate > 300) {
+      throw new Error('Data is too old');
+    }
+    
+    // Извлекаем данные пользователя
+    const userStr = params.get('user');
+    if (userStr) {
+      return JSON.parse(userStr);
+    }
+    
+    return null;
+  } catch (error) {
+    logger.error('Telegram WebApp data verification error:', error);
+    
+    // В режиме разработки разрешаем обход
+    if (process.env.NODE_ENV === 'development') {
+      try {
+        const params = new URLSearchParams(initData);
+        const userStr = params.get('user');
+        if (userStr) {
+          return JSON.parse(userStr);
+        }
+      } catch {
+        // Ignore
+      }
+    }
+    
+    return null;
   }
-  
-  return null;
 }
 
 /**
