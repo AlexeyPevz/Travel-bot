@@ -1,5 +1,7 @@
 import axios from 'axios';
 import { TourData, TourSearchParams } from './index';
+import { retry, RetryStrategies } from '../utils/retry';
+import { ExternalServiceError } from '../utils/errors';
 
 // Расширенный интерфейс для ошибок с информацией о провайдере
 interface ProviderError extends Error {
