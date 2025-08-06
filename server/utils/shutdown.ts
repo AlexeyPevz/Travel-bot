@@ -1,9 +1,9 @@
 import { Server } from 'http';
 import logger from './logger';
 import { pool } from '../../db';
-import { redis } from '../services/cache';
+import redis from '../services/cache';
 import { 
-  monitoringQueue, 
+  tourMonitoringQueue as monitoringQueue, 
   aiAnalysisQueue, 
   notificationQueue 
 } from '../services/queues';

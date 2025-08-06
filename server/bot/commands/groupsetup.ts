@@ -97,3 +97,27 @@ export class GroupSetupCommand extends BaseCommand {
     }
   }
 }
+
+/**
+ * Обработчик callback-запросов для настройки группы
+ */
+export async function handleGroupSetupCallback(
+  bot: TelegramBot,
+  callbackQuery: TelegramBot.CallbackQuery
+): Promise<void> {
+  try {
+    const chatId = callbackQuery.message?.chat.id;
+    const data = callbackQuery.data;
+
+    if (!chatId || !data) {
+      await bot.answerCallbackQuery(callbackQuery.id, { text: 'Ошибка обработки запроса' });
+      return;
+    }
+
+    // Здесь можно добавить логику обработки callback для группы
+    await bot.answerCallbackQuery(callbackQuery.id, { text: 'Функция в разработке' });
+    
+  } catch (error) {
+    await bot.answerCallbackQuery(callbackQuery.id, { text: 'Произошла ошибка' });
+  }
+}

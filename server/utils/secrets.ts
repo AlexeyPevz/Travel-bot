@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import crypto from 'crypto';
 import logger from './logger';
 
 /**
@@ -67,7 +68,7 @@ function generateRandomSecret(): string {
   if (process.env.NODE_ENV === 'production') {
     logger.warn('Generating random secret in production - this should be set via environment');
   }
-  return require('crypto').randomBytes(32).toString('hex');
+        return crypto.randomBytes(32).toString('hex');
 }
 
 /**

@@ -1,5 +1,5 @@
 import { db } from '../../db';
-import { redis } from '../services/cache';
+import redis from '../services/cache';
 import logger from '../utils/logger';
 import os from 'os';
 

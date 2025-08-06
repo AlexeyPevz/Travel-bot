@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { searchTours } from '../../providers';
-import { validate, tourSearchSchema } from '../../validators/schemas';
+import { tourSearchSchema } from '../../validators/schemas';
+import { validateBody } from '../../middleware/validation';
 import { asyncHandler } from '../../utils/errors';
 import { createRequestLogger } from '../../middleware/tracing';
 import { trackAsyncOperation, tourSearchTotal, tourSearchDuration } from '../../monitoring/metrics';
@@ -8,7 +9,7 @@ import { trackAsyncOperation, tourSearchTotal, tourSearchDuration } from '../../
 const router = Router();
 
 // Search tours
-router.post('/search', validate(tourSearchSchema), asyncHandler(async (req, res) => {
+router.post('/search', validateBody(tourSearchSchema), asyncHandler(async (req, res) => {
   const logger = createRequestLogger();
   const searchParams = req.body;
   

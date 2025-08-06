@@ -1,11 +1,13 @@
+import dotenv from 'dotenv-safe';
+dotenv.config({ allowEmptyValues: true });
 import express, { type Request, Response, NextFunction } from "express";
-import { registerRoutes } from "./routes.js";
-import { setupVite, serveStatic, log } from "./vite.js";
-import { setupSecurity, sanitizeBody } from "./middleware/security.js";
-import { correlationIdMiddleware } from "./middleware/tracing.js";
-import { dynamicRateLimiter } from "./middleware/rateLimiter.js";
-import { setupMetrics } from "./monitoring/metrics.js";
-import logger, { stream } from "./utils/logger.js";
+import { registerRoutes } from "./routes";
+import { setupVite, serveStatic, log } from "./vite";
+import { setupSecurity, sanitizeBody } from "./middleware/security";
+import { correlationIdMiddleware } from "./middleware/tracing";
+import { dynamicRateLimiter } from "./middleware/rateLimiter";
+import { setupMetrics } from "./monitoring/metrics";
+import logger, { stream } from "./utils/logger";
 import morgan from "morgan";
 
 const app = express();
@@ -63,7 +65,7 @@ app.use((req, res, next) => {
   const server = await registerRoutes(app);
 
   // Import error handler
-  const { errorHandler } = await import("./middleware/errorHandler.js");
+  const { errorHandler } = await import("./middleware/errorHandler");
   
   // Error handling middleware (must be last)
   app.use(errorHandler);
@@ -91,6 +93,6 @@ app.use((req, res, next) => {
   });
 
   // Import and setup graceful shutdown
-  const { gracefulShutdown } = await import("./utils/shutdown.js");
+  const { gracefulShutdown } = await import("./utils/shutdown");
   gracefulShutdown.setServer(server);
 })();

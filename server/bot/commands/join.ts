@@ -90,3 +90,30 @@ export class JoinCommand extends BaseCommand {
     }
   }
 }
+
+/**
+ * Обработчик callback-запросов для присоединения к группе
+ */
+export async function handleJoinCallback(
+  bot: TelegramBot,
+  callbackQuery: TelegramBot.CallbackQuery
+): Promise<void> {
+  try {
+    const chatId = callbackQuery.message?.chat.id;
+    const data = callbackQuery.data;
+
+    if (!chatId || !data) {
+      await bot.answerCallbackQuery(callbackQuery.id, { text: 'Ошибка обработки запроса' });
+      return;
+    }
+
+    // Извлекаем ID группы из callback data
+    const groupId = data.replace('join_group_', '');
+    
+    // Здесь можно добавить логику присоединения к группе
+    await bot.answerCallbackQuery(callbackQuery.id, { text: `Присоединение к группе ${groupId}...` });
+    
+  } catch (error) {
+    await bot.answerCallbackQuery(callbackQuery.id, { text: 'Произошла ошибка' });
+  }
+}
