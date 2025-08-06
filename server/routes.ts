@@ -1,4 +1,6 @@
 import { Express, Request, Response } from 'express';
+import { Server } from 'http';
+import { createServer } from 'http';
 import { z } from 'zod';
 import { db } from '../db';
 import { profiles, tours, tourMatches, groupProfiles, watchlists, tourPriorities } from '@shared/schema';
@@ -8,7 +10,6 @@ import { analyzeTourRequest, calculateTourMatchScore } from './services/openrout
 import { startBot } from './bot';
 import { startMonitoring } from './services/monitoring';
 import { createOrUpdateGroupProfile, aggregateGroupProfiles, handleGroupVote } from './services/groups';
-import { Server } from 'http';
 import { 
   userIdSchema,
   createProfileSchema,
@@ -39,7 +40,7 @@ import authRoutes from './routes/auth';
 import { requireAuth, optionalAuth, authorizeOwner } from './middleware/auth';
 
 export async function registerRoutes(app: Express): Promise<Server> {
-  const server = require('http').createServer(app);
+  const server = createServer(app);
 
   // Запускаем бота
   const bot = await startBot(server);
