@@ -4,6 +4,14 @@ import { handleFreeTextTourRequest, isTourSearchRequest } from './commands/text'
 import { getUserState, setUserState, FSM_STATES } from './fsm';
 import { handleCallbackQuery } from './callbacks';
 import logger from '../utils/logger';
+import { 
+  handleDepartureCity, 
+  handleAdultsCount, 
+  handleChildrenCount,
+  handleChildrenAges,
+  handleChildrenInfo,
+  performTourSearch
+} from './commands/searchFlow';
 
 /**
  * Обработчик команд бота
@@ -59,9 +67,9 @@ export async function handleMessage(
     // Проверяем состояние FSM пользователя
     const userState = getUserState(userId);
     
-    // Если пользователь в процессе заполнения анкеты
+    // Если пользователь в процессе заполнения анкеты или поиска
     if (userState && userState.state !== FSM_STATES.IDLE) {
-      // Обрабатываем через FSM (эта логика остается в отдельном модуле)
+      // Обрабатываем через FSM
       await handleFSMInput(bot, chatId, userId, text, userState);
       return;
     }
@@ -99,26 +107,81 @@ export async function handleCallback(
   bot: TelegramBot,
   callbackQuery: TelegramBot.CallbackQuery
 ): Promise<void> {
-  const chatId = callbackQuery.message?.chat.id;
-  const userId = callbackQuery.from.id.toString();
-  const data = callbackQuery.data;
-  
-  if (!chatId || !data) {
-    await bot.answerCallbackQuery(callbackQuery.id, { text: 'Ошибка обработки запроса' });
-    return;
-  }
-  
   try {
-    // Делегируем обработку в отдельный модуль
+    if (!callbackQuery.from || !callbackQuery.data) {
+      return;
+    }
+    
+    const chatId = callbackQuery.message?.chat.id;
+    if (!chatId) {
+      return;
+    }
+    
+    const userId = callbackQuery.from.id.toString();
+    const data = callbackQuery.data;
+    
+    // Обработка callback для поиска
+    if (data.startsWith('search_')) {
+      await handleSearchCallbacks(bot, chatId, userId, data, callbackQuery);
+      return;
+    }
+    
+    // Остальные callbacks обрабатываются как раньше
     await handleCallbackQuery(bot, callbackQuery);
+    
   } catch (error) {
     logger.error('Error handling callback:', error);
-    await bot.answerCallbackQuery(callbackQuery.id, { text: 'Произошла ошибка' });
+    if (callbackQuery.message?.chat.id) {
+      await bot.sendMessage(
+        callbackQuery.message.chat.id,
+        'Произошла ошибка при обработке запроса. Попробуйте еще раз.'
+      );
+    }
   }
 }
 
 /**
- * Обработчик FSM состояний (заглушка - реальная логика в отдельном модуле)
+ * Обработка callback для поиска туров
+ */
+async function handleSearchCallbacks(
+  bot: TelegramBot,
+  chatId: number,
+  userId: string,
+  data: string,
+  callbackQuery: TelegramBot.CallbackQuery
+): Promise<void> {
+  // Отвечаем на callback query
+  await bot.answerCallbackQuery(callbackQuery.id);
+  
+  switch (data) {
+    case 'search_no_children':
+      await handleChildrenInfo(bot, chatId, userId, false);
+      break;
+      
+    case 'search_has_children':
+      await handleChildrenInfo(bot, chatId, userId, true);
+      break;
+      
+    case 'search_confirm':
+      await performTourSearch(bot, chatId, userId);
+      break;
+      
+    case 'search_edit':
+      await bot.sendMessage(chatId, 'Функция редактирования параметров будет добавлена в следующей версии.\n\nПока что начните новый поиск.');
+      break;
+      
+    case 'search_cancel':
+      setUserState(userId, {
+        state: FSM_STATES.IDLE,
+        profile: { userId }
+      });
+      await bot.sendMessage(chatId, 'Поиск отменен. Вы можете начать новый поиск в любое время.');
+      break;
+  }
+}
+
+/**
+ * Обработчик ввода в зависимости от состояния FSM
  */
 async function handleFSMInput(
   bot: TelegramBot,
@@ -127,10 +190,46 @@ async function handleFSMInput(
   text: string,
   userState: any
 ): Promise<void> {
-  // TODO: Переместить FSM логику в отдельный модуль
-  // Пока оставляем заглушку
-  logger.warn('FSM handling not yet refactored');
-  await bot.sendMessage(chatId, 'Обработка анкеты временно недоступна. Используйте веб-приложение.');
+  switch (userState.state) {
+    // Состояния для поиска туров
+    case FSM_STATES.SEARCH_WAITING_DEPARTURE_CITY:
+      await handleDepartureCity(bot, chatId, userId, text);
+      break;
+      
+    case FSM_STATES.SEARCH_WAITING_ADULTS_COUNT:
+      await handleAdultsCount(bot, chatId, userId, text);
+      break;
+      
+    case FSM_STATES.SEARCH_WAITING_CHILDREN_COUNT:
+      await handleChildrenCount(bot, chatId, userId, text);
+      break;
+      
+    case FSM_STATES.SEARCH_WAITING_CHILDREN_AGES:
+      await handleChildrenAges(bot, chatId, userId, text);
+      break;
+      
+    // Остальные состояния (для анкеты)
+    case FSM_STATES.WAITING_NAME:
+    case FSM_STATES.WAITING_VACATION_TYPE:
+    case FSM_STATES.WAITING_COUNTRIES:
+    case FSM_STATES.WAITING_DESTINATION:
+    case FSM_STATES.WAITING_DATE_TYPE:
+    case FSM_STATES.WAITING_FIXED_START_DATE:
+    case FSM_STATES.WAITING_FIXED_END_DATE:
+    case FSM_STATES.WAITING_FLEXIBLE_MONTH:
+    case FSM_STATES.WAITING_TRIP_DURATION:
+    case FSM_STATES.WAITING_BUDGET:
+    case FSM_STATES.WAITING_PRIORITIES:
+    case FSM_STATES.WAITING_DEADLINE:
+      // Эти состояния обрабатываются отдельным модулем для анкеты
+      // Здесь можно добавить вызов соответствующего обработчика
+      await bot.sendMessage(chatId, 'Обработка анкеты временно недоступна. Используйте текстовый поиск.');
+      break;
+      
+    default:
+      logger.warn(`Unknown FSM state: ${userState.state}`);
+      await bot.sendMessage(chatId, 'Произошла ошибка. Попробуйте начать сначала с команды /start');
+  }
 }
 
 // Экспортируем все необходимые функции

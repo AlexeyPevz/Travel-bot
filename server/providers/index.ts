@@ -25,6 +25,12 @@ export interface TourSearchParams {
     renovation?: number;
     animation?: number;
   };
+  
+  // Обязательные параметры для поиска
+  departureCity?: string;    // Город вылета
+  adults?: number;           // Количество взрослых (по умолчанию 2)
+  children?: number;         // Количество детей (по умолчанию 0)
+  childrenAges?: number[];   // Возраст детей
 }
 
 // Tour data interface
@@ -96,8 +102,17 @@ export const tourProviders: TourProvider[] = [
  */
 export async function fetchToursFromAllProviders(params: TourSearchParams): Promise<TourData[]> {
   try {
+    // Устанавливаем значения по умолчанию для обязательных параметров
+    const searchParams = {
+      ...params,
+      departureCity: params.departureCity || 'Москва',
+      adults: params.adults || 2,
+      children: params.children || 0,
+      childrenAges: params.childrenAges || []
+    };
+    
     const allProviderPromises = tourProviders.map(provider => {
-      return provider.fetchTours(params)
+      return provider.fetchTours(searchParams)
         .catch(error => {
           console.error(`Error fetching tours from ${provider.name}:`, error);
           return [] as TourData[];

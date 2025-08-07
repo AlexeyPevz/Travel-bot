@@ -600,6 +600,21 @@ export async function fetchToursFromLevelTravel(params: TourSearchParams): Promi
         }
       }
       
+      // Определяем город вылета
+      const departureCity = params.departureCity || 'Москва';
+      // Преобразуем русское название в английское для API
+      const departureCityMap: Record<string, string> = {
+        'Москва': 'Moscow',
+        'Санкт-Петербург': 'Saint Petersburg',
+        'Екатеринбург': 'Ekaterinburg',
+        'Новосибирск': 'Novosibirsk',
+        'Казань': 'Kazan',
+        'Нижний Новгород': 'Nizhny Novgorod',
+        'Самара': 'Samara',
+        'Краснодар': 'Krasnodar'
+      };
+      const fromCity = departureCityMap[departureCity] || 'Moscow';
+      
       // Формируем параметры запроса в соответствии с документацией Level.Travel API
       interface EnqueueParams {
         from_city: string;         // Город вылета (name_en)
@@ -618,12 +633,20 @@ export async function fetchToursFromLevelTravel(params: TourSearchParams): Promi
       
       // Параметры запроса по документации
       const requestData: EnqueueParams = {
-        from_city: "Moscow",
+        from_city: fromCity,
         to_country: countryCode,
-        adults: 2,
+        adults: params.adults || 2,
         start_date: formatDate(startDate),
         nights: `${nights}..${nights+2}` // Небольшой разброс для лучших результатов
       };
+      
+      // Добавляем детей, если есть
+      if (params.children && params.children > 0) {
+        requestData.kids = params.children;
+        if (params.childrenAges && params.childrenAges.length > 0) {
+          requestData.kids_ages = params.childrenAges;
+        }
+      }
       
       // Добавляем ограничение бюджета, если указано
       if (params.budget && params.budget > 0) {
@@ -832,7 +855,7 @@ export async function fetchToursFromLevelTravel(params: TourSearchParams): Promi
                 image: enhanceImageQuality(hotelImage) || '',
                 
                 // Дополнительные данные
-                departureCity: 'Москва', // По умолчанию из Москвы
+                departureCity: params.departureCity || 'Москва', // Используем переданный город вылета
                 arrivalCity: params.destination,
                 beachDistance: hotel.beach_distance || 0,
                 

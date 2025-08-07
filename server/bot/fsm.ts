@@ -14,7 +14,40 @@ export enum FSM_STATES {
   WAITING_TRIP_DURATION = 'waiting_trip_duration',
   WAITING_BUDGET = 'waiting_budget',
   WAITING_PRIORITIES = 'waiting_priorities',
-  WAITING_DEADLINE = 'waiting_deadline'
+  WAITING_DEADLINE = 'waiting_deadline',
+  
+  // Состояния для поиска туров
+  SEARCH_WAITING_DEPARTURE_CITY = 'search_waiting_departure_city',
+  SEARCH_WAITING_ADULTS_COUNT = 'search_waiting_adults_count',
+  SEARCH_WAITING_CHILDREN_INFO = 'search_waiting_children_info',
+  SEARCH_WAITING_CHILDREN_AGES = 'search_waiting_children_ages',
+  SEARCH_CONFIRMING_PARAMS = 'search_confirming_params'
+}
+
+// Параметры поиска тура
+export interface TourSearchData {
+  // Из анализа текста
+  destination?: string;
+  countries?: string[];
+  budget?: number;
+  dateType?: 'fixed' | 'flexible';
+  startDate?: Date;
+  endDate?: Date;
+  flexibleMonth?: string;
+  tripDuration?: number;
+  vacationType?: string;
+  priorities?: any;
+  
+  // Обязательные параметры для API
+  departureCity?: string;
+  adultsCount?: number;
+  childrenCount?: number;
+  childrenAges?: number[];
+  
+  // Дополнительные параметры
+  hotelStars?: number[];
+  mealType?: string;
+  beachLine?: number;
 }
 
 // User state type
@@ -22,6 +55,7 @@ interface UserState {
   state: FSM_STATES;
   profile: Partial<Profile>;
   onboardingShown?: boolean; // Флаг, показывающий, был ли показан онбординг
+  searchData?: TourSearchData; // Данные для поиска туров
   [key: string]: any; // Additional dynamic properties
 }
 
@@ -72,6 +106,25 @@ export function updateUserStateProfile(userId: string, profileUpdate: Partial<Pr
       profile: {
         ...state.profile,
         ...profileUpdate
+      }
+    });
+  }
+}
+
+/**
+ * Update tour search data
+ * @param userId Telegram user ID
+ * @param searchDataUpdate Partial search data to update
+ */
+export function updateSearchData(userId: string, searchDataUpdate: Partial<TourSearchData>): void {
+  const state = getUserState(userId);
+  
+  if (state) {
+    setUserState(userId, {
+      ...state,
+      searchData: {
+        ...state.searchData,
+        ...searchDataUpdate
       }
     });
   }
