@@ -3,23 +3,21 @@ import { Profile } from '@shared/schema';
 // Finite State Machine states for bot conversation
 export enum FSM_STATES {
   IDLE = 'idle',
+  
+  // Состояния для онбординга
   WAITING_NAME = 'waiting_name',
-  WAITING_VACATION_TYPE = 'waiting_vacation_type',
   WAITING_COUNTRIES = 'waiting_countries',
-  WAITING_DESTINATION = 'waiting_destination',
-  WAITING_DATE_TYPE = 'waiting_date_type',
-  WAITING_FIXED_START_DATE = 'waiting_fixed_start_date',
-  WAITING_FIXED_END_DATE = 'waiting_fixed_end_date',
-  WAITING_FLEXIBLE_MONTH = 'waiting_flexible_month',
-  WAITING_TRIP_DURATION = 'waiting_trip_duration',
   WAITING_BUDGET = 'waiting_budget',
-  WAITING_PRIORITIES = 'waiting_priorities',
-  WAITING_DEADLINE = 'waiting_deadline',
+  WAITING_DATES = 'waiting_dates',
+  WAITING_DURATION = 'waiting_duration',
+  WAITING_TRAVELERS = 'waiting_travelers',
+  WAITING_PREFERENCES = 'waiting_preferences',
   
   // Состояния для поиска туров
   SEARCH_WAITING_DEPARTURE_CITY = 'search_waiting_departure_city',
   SEARCH_WAITING_ADULTS_COUNT = 'search_waiting_adults_count',
   SEARCH_WAITING_CHILDREN_INFO = 'search_waiting_children_info',
+  SEARCH_WAITING_CHILDREN_COUNT = 'search_waiting_children_count',
   SEARCH_WAITING_CHILDREN_AGES = 'search_waiting_children_ages',
   SEARCH_CONFIRMING_PARAMS = 'search_confirming_params'
 }

@@ -8,6 +8,8 @@ import {
   handleGroupSearch,
   handleGroupTourVote
 } from './commands/groupEnhanced';
+import { handleOnboardingStep, handleSkipPreferences } from './commands/onboarding';
+import { MESSAGES } from './messages/templates';
 import logger from '../utils/logger';
 
 export async function handleCallbackQuery(
@@ -45,7 +47,8 @@ export async function handleCallbackQuery(
       
       await bot.sendMessage(
         chatId,
-        'Давайте начнем! Как вас зовут?'
+        MESSAGES.onboarding.steps.name,
+        { parse_mode: 'Markdown' }
       );
       
       await bot.answerCallbackQuery(callbackQuery.id);
@@ -59,7 +62,7 @@ export async function handleCallbackQuery(
       if (!profile) {
         await bot.sendMessage(
           chatId,
-          'Сначала нужно заполнить анкету для персонализированного поиска.',
+          MESSAGES.errors.noProfile,
           {
             reply_markup: {
               inline_keyboard: [[
@@ -71,7 +74,7 @@ export async function handleCallbackQuery(
       } else {
         await bot.sendMessage(
           chatId,
-          '🔍 Начинаю поиск туров по вашим параметрам...'
+          MESSAGES.search.searching
         );
         // TODO: Implement tour search
       }
@@ -82,28 +85,21 @@ export async function handleCallbackQuery(
 
     // Show help
     if (data === 'show_help') {
-      const helpMessage = `
-📌 *Доступные команды:*
-
-/start - Начать работу с ботом
-/help - Показать это сообщение
-/profile - Посмотреть свой профиль
-/search - Найти туры
-/watchlist - Управление списком отслеживания
-/groupsetup - Настроить групповой поиск (для админов групп)
-/join - Присоединиться к групповому поиску
-
-*Как это работает:*
-1. Заполните анкету с вашими предпочтениями
-2. Бот найдет подходящие туры
-3. Настройте автоматический мониторинг цен
-4. Получайте уведомления о выгодных предложениях
-
-Для группового поиска добавьте бота в чат и используйте /groupsetup.
-      `;
-      
-      await bot.sendMessage(chatId, helpMessage, { parse_mode: 'Markdown' });
+      await bot.sendMessage(
+        chatId, 
+        MESSAGES.help.full, 
+        { 
+          parse_mode: 'Markdown',
+          disable_web_page_preview: true
+        }
+      );
       await bot.answerCallbackQuery(callbackQuery.id);
+      return;
+    }
+
+    // Skip preferences in onboarding
+    if (data === 'skip_preferences') {
+      await handleSkipPreferences(bot, callbackQuery);
       return;
     }
 

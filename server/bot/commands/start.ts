@@ -1,7 +1,7 @@
 import { BaseCommand, CommandContext } from './base';
 import { storage } from '../../storage';
-import { resetUserState } from '../fsm';
-import { sendIntroCards } from '../utils/onboarding';
+import { MESSAGES, getQuickActions } from '../messages/templates';
+import logger from '../../utils/logger';
 
 /**
  * Команда /start - начало работы с ботом
@@ -12,43 +12,71 @@ export class StartCommand extends BaseCommand {
   usage = '/start';
 
   protected async executeCommand(ctx: CommandContext): Promise<void> {
-    const { bot, chatId, userId } = ctx;
+    const { bot, chatId, userId, message } = ctx;
 
     try {
-      // Сбрасываем состояние пользователя
-      resetUserState(userId);
+      // Проверяем, приватный ли это чат
+      const isPrivate = this.isPrivateChat(chatId);
       
-      // Проверяем, есть ли у пользователя профиль
-      const existingProfile = await storage.getProfile(userId);
-      
-      if (existingProfile) {
-        // Возвращающийся пользователь
-        const keyboard = {
-          inline_keyboard: [
-            [{ 
-              text: 'Открыть приложение', 
-              web_app: { 
-                url: `https://${process.env.REPLIT_DOMAINS?.split(',')[0] || 'localhost:5000'}/profile` 
-              } 
-            }],
-            [{ text: 'Редактировать анкету', callback_data: 'edit_profile' }],
-            [{ text: 'Показать туры', callback_data: 'show_tours' }]
-          ]
-        };
-        
+      if (!isPrivate) {
         await this.sendMessage(
           bot,
           chatId,
-          `Рады видеть вас снова, ${existingProfile.name}! Что бы вы хотели сделать?`,
-          { reply_markup: keyboard }
+          'Привет! Я работаю в личных сообщениях. Нажмите на кнопку ниже, чтобы начать.',
+          {
+            reply_markup: {
+              inline_keyboard: [[
+                {
+                  text: 'Начать в личном чате',
+                  url: `https://t.me/${(await bot.getMe()).username}?start=from_group`
+                }
+              ]]
+            }
+          }
         );
-        
-        // Для существующих пользователей не показываем онбординг автоматически
-        // Они могут вызвать его командой /help при необходимости
-      } else {
-        // Новый пользователь - отправляем карточки онбординга
-        await sendIntroCards(bot, chatId, userId);
+        return;
       }
+
+      // Проверяем параметры deep link
+      const startParam = message?.text?.split(' ')[1];
+      let deepLinkMessage = '';
+      
+      if (startParam) {
+        if (startParam.startsWith('group_')) {
+          deepLinkMessage = '\n\n✅ Вы пришли из группового чата. После заполнения анкеты вернитесь в группу и нажмите "Я готов к поиску".';
+        }
+      }
+
+      // Проверяем, есть ли у пользователя профиль
+      const profile = await storage.getProfile(userId);
+      
+      if (profile) {
+        // Возвращающийся пользователь
+        await this.sendMessage(
+          bot,
+          chatId,
+          MESSAGES.welcome.returning + deepLinkMessage,
+          { 
+            parse_mode: 'Markdown',
+            reply_markup: getQuickActions('start')
+          }
+        );
+      } else {
+        // Новый пользователь
+        await this.sendMessage(
+          bot,
+          chatId,
+          MESSAGES.welcome.firstTime + deepLinkMessage,
+          { 
+            parse_mode: 'Markdown',
+            reply_markup: getQuickActions('start')
+          }
+        );
+      }
+
+      // Логируем использование команды
+      logger.info(`User ${userId} started bot, profile exists: ${!!profile}`);
+      
     } catch (error) {
       await this.sendError(bot, chatId, error as Error);
     }

@@ -12,6 +12,7 @@ import {
   handleChildrenInfo,
   performTourSearch
 } from './commands/searchFlow';
+import { handleOnboardingStep, handleSkipPreferences } from './commands/onboarding';
 
 /**
  * Обработчик команд бота
@@ -190,8 +191,24 @@ async function handleFSMInput(
   text: string,
   userState: any
 ): Promise<void> {
-  switch (userState.state) {
-    // Состояния для поиска туров
+  const state = userState.state as FSM_STATES;
+  
+  // Онбординг
+  if ([
+    FSM_STATES.WAITING_NAME,
+    FSM_STATES.WAITING_COUNTRIES,
+    FSM_STATES.WAITING_BUDGET,
+    FSM_STATES.WAITING_DATES,
+    FSM_STATES.WAITING_DURATION,
+    FSM_STATES.WAITING_TRAVELERS,
+    FSM_STATES.WAITING_PREFERENCES
+  ].includes(state)) {
+    await handleOnboardingStep(bot, chatId, userId, text, state);
+    return;
+  }
+  
+  // Поиск туров
+  switch (state) {
     case FSM_STATES.SEARCH_WAITING_DEPARTURE_CITY:
       await handleDepartureCity(bot, chatId, userId, text);
       break;
@@ -208,27 +225,12 @@ async function handleFSMInput(
       await handleChildrenAges(bot, chatId, userId, text);
       break;
       
-    // Остальные состояния (для анкеты)
-    case FSM_STATES.WAITING_NAME:
-    case FSM_STATES.WAITING_VACATION_TYPE:
-    case FSM_STATES.WAITING_COUNTRIES:
-    case FSM_STATES.WAITING_DESTINATION:
-    case FSM_STATES.WAITING_DATE_TYPE:
-    case FSM_STATES.WAITING_FIXED_START_DATE:
-    case FSM_STATES.WAITING_FIXED_END_DATE:
-    case FSM_STATES.WAITING_FLEXIBLE_MONTH:
-    case FSM_STATES.WAITING_TRIP_DURATION:
-    case FSM_STATES.WAITING_BUDGET:
-    case FSM_STATES.WAITING_PRIORITIES:
-    case FSM_STATES.WAITING_DEADLINE:
-      // Эти состояния обрабатываются отдельным модулем для анкеты
-      // Здесь можно добавить вызов соответствующего обработчика
-      await bot.sendMessage(chatId, 'Обработка анкеты временно недоступна. Используйте текстовый поиск.');
-      break;
-      
     default:
-      logger.warn(`Unknown FSM state: ${userState.state}`);
-      await bot.sendMessage(chatId, 'Произошла ошибка. Попробуйте начать сначала с команды /start');
+      logger.warn(`Unhandled FSM state: ${state}`);
+      await bot.sendMessage(
+        chatId,
+        'Произошла ошибка. Попробуйте начать заново с /start'
+      );
   }
 }
 
