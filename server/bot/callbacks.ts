@@ -8,7 +8,7 @@ import {
   handleGroupSearch,
   handleGroupTourVote
 } from './commands/groupEnhanced';
-import { handleOnboardingStep, handleSkipPreferences } from './commands/onboarding';
+import { handleOnboardingStep, handleSkipPreferences, handleVacationTypeCallback } from './commands/onboarding';
 import { MESSAGES } from './messages/templates';
 import logger from '../utils/logger';
 
@@ -94,6 +94,12 @@ export async function handleCallbackQuery(
         }
       );
       await bot.answerCallbackQuery(callbackQuery.id);
+      return;
+    }
+
+    // Vacation type selection
+    if (data.startsWith('vacation_')) {
+      await handleVacationTypeCallback(bot, callbackQuery);
       return;
     }
 

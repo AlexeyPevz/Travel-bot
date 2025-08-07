@@ -4,6 +4,7 @@ import { storage } from '../../storage';
 import { MESSAGES } from '../messages/templates';
 import { parseDate, parseDuration, parseBudget } from '../utils/parsers';
 import logger from '../../utils/logger';
+import { VACATION_TYPE_DESCRIPTIONS, VacationType } from '../../types/vacationTypes';
 
 /**
  * Обработчик шагов онбординга
@@ -19,6 +20,10 @@ export async function handleOnboardingStep(
     switch (currentState) {
       case FSM_STATES.WAITING_NAME:
         await handleNameStep(bot, chatId, userId, text);
+        break;
+        
+      case FSM_STATES.WAITING_VACATION_TYPE:
+        await handleVacationTypeStep(bot, chatId, userId, text);
         break;
         
       case FSM_STATES.WAITING_COUNTRIES:
@@ -70,15 +75,73 @@ async function handleNameStep(
 
   updateUserStateProfile(userId, { name });
   setUserState(userId, {
-    state: FSM_STATES.WAITING_COUNTRIES,
+    state: FSM_STATES.WAITING_VACATION_TYPE,
     profile: getUserState(userId)?.profile
   });
 
+  // Отправляем выбор типа отдыха с кнопками
+  const vacationButtons = [
+    [
+      { text: '🏖️ Пляжный', callback_data: 'vacation_beach' },
+      { text: '🎿 Горнолыжный', callback_data: 'vacation_ski' }
+    ],
+    [
+      { text: '🏛️ Экскурсионный', callback_data: 'vacation_excursion' },
+      { text: '🏃 Активный', callback_data: 'vacation_active' }
+    ],
+    [
+      { text: '🧘 Велнес/СПА', callback_data: 'vacation_wellness' },
+      { text: '👨‍👩‍👧‍👦 Семейный', callback_data: 'vacation_family' }
+    ],
+    [
+      { text: '🚢 Круизы', callback_data: 'vacation_cruise' },
+      { text: '🌿 Экотуризм', callback_data: 'vacation_eco' }
+    ],
+    [
+      { text: '✅ Готово', callback_data: 'vacation_done' }
+    ]
+  ];
+
   await bot.sendMessage(
     chatId,
-    MESSAGES.onboarding.steps.countries,
-    { parse_mode: 'Markdown' }
+    MESSAGES.onboarding.steps.vacationType,
+    { 
+      parse_mode: 'Markdown',
+      reply_markup: {
+        inline_keyboard: vacationButtons
+      }
+    }
   );
+}
+
+/**
+ * Шаг 2: Тип отдыха
+ */
+async function handleVacationTypeStep(
+  bot: TelegramBot,
+  chatId: number,
+  userId: string,
+  text: string
+): Promise<void> {
+  // Обработка текстового ввода
+  const userState = getUserState(userId);
+  const selectedTypes = userState?.profile?.vacationType || [];
+  
+  // Если пользователь написал текст вместо нажатия кнопок
+  if (text && !text.startsWith('/')) {
+    updateUserStateProfile(userId, { vacationType: text });
+    
+    setUserState(userId, {
+      state: FSM_STATES.WAITING_COUNTRIES,
+      profile: getUserState(userId)?.profile
+    });
+
+    await bot.sendMessage(
+      chatId,
+      MESSAGES.onboarding.steps.countries,
+      { parse_mode: 'Markdown' }
+    );
+  }
 }
 
 /**
@@ -322,4 +385,137 @@ export async function handleSkipPreferences(
   });
   
   await completeOnboarding(bot, chatId, userId);
+}
+
+/**
+ * Обработчик выбора типа отдыха через callback
+ */
+export async function handleVacationTypeCallback(
+  bot: TelegramBot,
+  callbackQuery: TelegramBot.CallbackQuery
+): Promise<void> {
+  const chatId = callbackQuery.message?.chat.id;
+  const userId = callbackQuery.from.id.toString();
+  const data = callbackQuery.data;
+  
+  if (!chatId || !data) return;
+
+  const userState = getUserState(userId);
+  let selectedTypes = userState?.profile?.selectedVacationTypes || [];
+
+  if (data === 'vacation_done') {
+    if (selectedTypes.length === 0) {
+      await bot.answerCallbackQuery(callbackQuery.id, {
+        text: 'Выберите хотя бы один тип отдыха',
+        show_alert: true
+      });
+      return;
+    }
+
+    // Сохраняем выбранные типы
+    updateUserStateProfile(userId, { 
+      vacationType: selectedTypes.join(', '),
+      selectedVacationTypes: selectedTypes 
+    });
+    
+    setUserState(userId, {
+      state: FSM_STATES.WAITING_COUNTRIES,
+      profile: getUserState(userId)?.profile
+    });
+
+    await bot.answerCallbackQuery(callbackQuery.id);
+    
+    // Отправляем следующий шаг
+    await bot.sendMessage(
+      chatId,
+      MESSAGES.onboarding.steps.countries,
+      { parse_mode: 'Markdown' }
+    );
+    
+    // Удаляем кнопки
+    await bot.editMessageReplyMarkup(
+      { inline_keyboard: [] },
+      {
+        chat_id: chatId,
+        message_id: callbackQuery.message?.message_id
+      }
+    );
+    
+    return;
+  }
+
+  // Обработка выбора типа
+  const vacationType = data.replace('vacation_', '');
+  
+  if (selectedTypes.includes(vacationType)) {
+    // Убираем из выбранных
+    selectedTypes = selectedTypes.filter(t => t !== vacationType);
+  } else {
+    // Добавляем в выбранные
+    selectedTypes.push(vacationType);
+  }
+
+  // Обновляем состояние
+  updateUserStateProfile(userId, { selectedVacationTypes: selectedTypes });
+
+  // Обновляем кнопки с галочками
+  const vacationButtons = [
+    [
+      { 
+        text: `${selectedTypes.includes('beach') ? '✅ ' : ''}🏖️ Пляжный`, 
+        callback_data: 'vacation_beach' 
+      },
+      { 
+        text: `${selectedTypes.includes('ski') ? '✅ ' : ''}🎿 Горнолыжный`, 
+        callback_data: 'vacation_ski' 
+      }
+    ],
+    [
+      { 
+        text: `${selectedTypes.includes('excursion') ? '✅ ' : ''}🏛️ Экскурсионный`, 
+        callback_data: 'vacation_excursion' 
+      },
+      { 
+        text: `${selectedTypes.includes('active') ? '✅ ' : ''}🏃 Активный`, 
+        callback_data: 'vacation_active' 
+      }
+    ],
+    [
+      { 
+        text: `${selectedTypes.includes('wellness') ? '✅ ' : ''}🧘 Велнес/СПА`, 
+        callback_data: 'vacation_wellness' 
+      },
+      { 
+        text: `${selectedTypes.includes('family') ? '✅ ' : ''}👨‍👩‍👧‍👦 Семейный`, 
+        callback_data: 'vacation_family' 
+      }
+    ],
+    [
+      { 
+        text: `${selectedTypes.includes('cruise') ? '✅ ' : ''}🚢 Круизы`, 
+        callback_data: 'vacation_cruise' 
+      },
+      { 
+        text: `${selectedTypes.includes('eco') ? '✅ ' : ''}🌿 Экотуризм`, 
+        callback_data: 'vacation_eco' 
+      }
+    ],
+    [
+      { text: '✅ Готово', callback_data: 'vacation_done' }
+    ]
+  ];
+
+  await bot.editMessageReplyMarkup(
+    { inline_keyboard: vacationButtons },
+    {
+      chat_id: chatId,
+      message_id: callbackQuery.message?.message_id
+    }
+  );
+
+  await bot.answerCallbackQuery(callbackQuery.id, {
+    text: selectedTypes.length > 0 
+      ? `Выбрано типов: ${selectedTypes.length}` 
+      : 'Ничего не выбрано'
+  });
 }

@@ -6,6 +6,7 @@ export enum FSM_STATES {
   
   // Состояния для онбординга
   WAITING_NAME = 'waiting_name',
+  WAITING_VACATION_TYPE = 'waiting_vacation_type',
   WAITING_COUNTRIES = 'waiting_countries',
   WAITING_BUDGET = 'waiting_budget',
   WAITING_DATES = 'waiting_dates',

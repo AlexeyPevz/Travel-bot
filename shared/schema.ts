@@ -1,28 +1,25 @@
-import { pgTable, serial, text, integer, timestamp, jsonb, boolean, real, uniqueIndex } from 'drizzle-orm/pg-core';
+import { pgTable, serial, text, integer, timestamp, jsonb, boolean, real, uniqueIndex, date } from 'drizzle-orm/pg-core';
 import { relations } from 'drizzle-orm';
 
 // Profiles table - хранит профили пользователей
 export const profiles = pgTable('profiles', {
   id: serial('id').primaryKey(),
   userId: text('user_id').notNull().unique(),
-  telegramUsername: text('telegram_username'),
   name: text('name'),
-  vacationType: text('vacation_type'), // beach, active, cultural, etc.
-  countries: jsonb('countries').$type<string[]>(),
-  destination: text('destination'),
-  dateType: text('date_type'), // fixed, flexible
-  startDate: timestamp('start_date'),
-  endDate: timestamp('end_date'),
-  flexibleMonth: text('flexible_month'),
-  tripDuration: integer('trip_duration'), // дней
-  budget: integer('budget'), // в рублях
-  budgetPerPerson: boolean('budget_per_person').default(false),
-  peopleCount: integer('people_count').default(2),
-  priorities: jsonb('priorities').$type<Record<string, number>>(), // веса параметров
-  deadline: timestamp('deadline'), // дедлайн для подбора
-  referrerId: text('referrer_id'),
+  vacationType: text('vacation_type'), // Тип отдыха
+  countries: jsonb('countries'), // массив предпочитаемых стран
+  budget: integer('budget'), // максимальный бюджет
+  startDate: date('start_date'), // начало периода
+  endDate: date('end_date'), // конец периода  
+  tripDuration: integer('trip_duration'), // желаемая длительность в днях
+  priorities: jsonb('priorities'), // объект с приоритетами пользователя для разных типов отдыха
+  adults: integer('adults').default(2), // количество взрослых
+  children: integer('children').default(0), // количество детей
+  childrenAges: jsonb('children_ages'), // массив возрастов детей
+  preferences: jsonb('preferences'), // дополнительные предпочтения
   createdAt: timestamp('created_at').defaultNow(),
-  updatedAt: timestamp('updated_at').defaultNow()
+  updatedAt: timestamp('updated_at').defaultNow(),
+  isActive: boolean('is_active').default(true)
 });
 
 // Типы для профиля
@@ -168,6 +165,16 @@ export const monitoringTasks = pgTable('monitoring_tasks', {
   lastRunAt: timestamp('last_run_at'),
   status: text('status').default('active'), // active, paused, completed
   metadata: jsonb('metadata'),
+  createdAt: timestamp('created_at').defaultNow()
+});
+
+// Tour parameters - дополнительные параметры туров
+export const tourParameters = pgTable('tour_parameters', {
+  id: serial('id').primaryKey(),
+  tourId: integer('tour_id').references(() => tours.id),
+  parameterType: text('parameter_type').notNull(), // beachLine, slopeDistance, etc
+  parameterValue: real('parameter_value'), // числовое значение
+  parameterText: text('parameter_text'), // текстовое значение
   createdAt: timestamp('created_at').defaultNow()
 });
 
