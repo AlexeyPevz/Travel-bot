@@ -153,15 +153,36 @@ function enhanceImageQuality(imageUrl: string | undefined): string | undefined {
 /**
  * Создает реферальную ссылку для перехода к отелю/туру
  * @param hotelId ID отеля в системе Level.Travel
+ * @param params Дополнительные параметры для ссылки
  * @returns Ссылка с реферальной информацией
  */
-function createReferralLink(hotelId: string | number): string {
-  if (!hotelId) {
-    return `https://level.travel/?ref=${LEVEL_TRAVEL_PARTNER_ID}`; // Основной сайт, если ID не указан
+function createReferralLink(hotelId: string | number, params?: any): string {
+  const affiliateUrl = process.env.LEVEL_TRAVEL_AFFILIATE_URL;
+  const marker = process.env.LEVEL_TRAVEL_MARKER || '627387';
+  
+  // Если есть готовая партнерская ссылка
+  if (affiliateUrl && affiliateUrl.includes('level.tpx.lt')) {
+    const urlParams = new URLSearchParams({
+      hotel_id: hotelId.toString(),
+      marker: marker
+    });
+    
+    if (params) {
+      if (params.start_date) urlParams.append('start_date', params.start_date);
+      if (params.nights) urlParams.append('nights', params.nights.toString());
+      if (params.adults) urlParams.append('adults', params.adults.toString());
+      if (params.kids) urlParams.append('kids', params.kids.toString());
+    }
+    
+    return `${affiliateUrl}&${urlParams.toString()}`;
   }
   
-  // Добавляем партнерский ID к ссылке на отель в правильном формате
-  return `https://level.travel/hotels/${hotelId}?ref=${LEVEL_TRAVEL_PARTNER_ID}`;
+  // Иначе используем стандартную партнерскую ссылку
+  if (!hotelId) {
+    return `https://level.travel/?partner_id=${LEVEL_TRAVEL_PARTNER_ID}`;
+  }
+  
+  return `https://level.travel/hotels/${hotelId}?partner_id=${LEVEL_TRAVEL_PARTNER_ID}`;
 }
 
 /**
@@ -600,6 +621,21 @@ export async function fetchToursFromLevelTravel(params: TourSearchParams): Promi
         }
       }
       
+      // Определяем город вылета
+      const departureCity = params.departureCity || 'Москва';
+      // Преобразуем русское название в английское для API
+      const departureCityMap: Record<string, string> = {
+        'Москва': 'Moscow',
+        'Санкт-Петербург': 'Saint Petersburg',
+        'Екатеринбург': 'Ekaterinburg',
+        'Новосибирск': 'Novosibirsk',
+        'Казань': 'Kazan',
+        'Нижний Новгород': 'Nizhny Novgorod',
+        'Самара': 'Samara',
+        'Краснодар': 'Krasnodar'
+      };
+      const fromCity = departureCityMap[departureCity] || 'Moscow';
+      
       // Формируем параметры запроса в соответствии с документацией Level.Travel API
       interface EnqueueParams {
         from_city: string;         // Город вылета (name_en)
@@ -618,12 +654,20 @@ export async function fetchToursFromLevelTravel(params: TourSearchParams): Promi
       
       // Параметры запроса по документации
       const requestData: EnqueueParams = {
-        from_city: "Moscow",
+        from_city: fromCity,
         to_country: countryCode,
-        adults: 2,
+        adults: params.adults || 2,
         start_date: formatDate(startDate),
         nights: `${nights}..${nights+2}` // Небольшой разброс для лучших результатов
       };
+      
+      // Добавляем детей, если есть
+      if (params.children && params.children > 0) {
+        requestData.kids = params.children;
+        if (params.childrenAges && params.childrenAges.length > 0) {
+          requestData.kids_ages = params.childrenAges;
+        }
+      }
       
       // Добавляем ограничение бюджета, если указано
       if (params.budget && params.budget > 0) {
@@ -795,84 +839,102 @@ export async function fetchToursFromLevelTravel(params: TourSearchParams): Promi
         const result: TourData[] = [];
         
         // Проходим по всем отелям и формируем объекты туров
-        // Согласно документации, структура ответа будет отличаться
         const hotelsList = hotelsListResponse.data.hotels || [];
         console.log(`Найдено отелей: ${hotelsList.length}`);
         
-        for (const hotel of hotelsList) {
+        for (const hotelData of hotelsList) {
           try {
-            // Извлекаем необходимые данные из отеля по документации API
+            // В новой структуре API отель находится в поле hotel
+            const hotel = hotelData.hotel;
+            if (!hotel || !hotel.id) continue;
+            
+            // Извлекаем необходимые данные
             const hotelId = hotel.id;
             const hotelName = hotel.name;
-            const hotelStars = hotel.stars;
-            const hotelPrice = hotel.min_price || 0; // В ответе API это min_price
-            const hotelOldPrice = hotel.old_price || null;
-            const hotelRating = hotel.rating || 0;
-            const hotelImage = hotel.image?.url || hotel.thumb_url || '';
+            const hotelStars = hotel.stars || 0;
+            const hotelPrice = hotelData.min_price || 0;
+            const hotelOldPrice = hotelData.extras?.previous_price || null;
+            const hotelRating = hotel.rating || null;
+            const hotelReviews = hotel.reviews_count || 0;
+            
+            // Получаем изображения
+            const images: string[] = [];
+            if (hotel.image?.full_size) {
+              images.push(hotel.image.full_size);
+            }
+            if (hotel.images && Array.isArray(hotel.images)) {
+              hotel.images.forEach((img: any) => {
+                if (img.x500) images.push(img.x500);
+              });
+            }
             
             // Если есть все необходимые данные, создаем объект тура
             if (hotelId && hotelName && hotelPrice > 0) {
               const tour: TourData = {
                 provider: 'leveltravel',
                 externalId: `lt-${hotelId}`,
-                title: `${hotelName} ${hotelStars}★`,
-                description: hotel.hotel_info || '',
-                destination: params.destination,
+                title: `${hotelName} ${hotelStars > 0 ? hotelStars + '★' : ''}`.trim(),
+                description: hotel.desc || '',
+                destination: hotel.city || hotel.region_name || params.destination,
                 hotel: hotelName,
                 hotelStars: hotelStars,
                 price: hotelPrice,
-                priceOld: hotelOldPrice || null,
+                priceOld: hotelOldPrice,
                 rating: hotelRating,
+                reviewsCount: hotelReviews,
                 startDate: startDate,
                 endDate: endDate,
                 nights: nights,
-                roomType: hotel.room_name || 'Стандартный номер',
-                mealType: parseMealType(hotel.meal_name || ''),
-                link: createReferralLink(hotelId),
-                image: enhanceImageQuality(hotelImage) || '',
+                roomType: 'Стандартный номер',
+                mealType: parseMealType(hotelData.pansion_prices ? Object.keys(hotelData.pansion_prices)[0] : ''),
+                link: createReferralLink(hotelId, {
+                  start_date: startDate.toISOString().split('T')[0],
+                  nights: nights,
+                  adults: params.adults || 2,
+                  kids: params.children || 0
+                }),
+                image: images[0] || '',
+                images: images,
                 
                 // Дополнительные данные
-                departureCity: 'Москва', // По умолчанию из Москвы
-                arrivalCity: params.destination,
-                beachDistance: hotel.beach_distance || 0,
+                departureCity: params.departureCity || 'Москва',
+                arrivalCity: hotel.city || params.destination,
+                tourOperatorId: hotelData.operators?.[0] || null,
                 
-                // Оценка соответствия запросу
-                matchScore: 100, // Максимальное соответствие для базового провайдера
+                // Характеристики отеля
+                beachDistance: hotel.features?.beach_distance || null,
+                beachType: hotel.features?.beach_type || null,
+                beachSurface: hotel.features?.beach_surface || null,
+                airportDistance: hotel.features?.airport_distance || null,
+                hasWifi: hotel.features?.wi_fi === 'FREE' || hotel.features?.wi_fi === 'PAID',
+                hasPool: hotel.features?.pool || false,
+                hasKidsClub: hotel.features?.kids_club || false,
+                hasFitness: hotel.features?.fitness || false,
+                hasAquapark: hotel.features?.aquapark || false,
+                
+                // Координаты
+                latitude: hotel.lat || null,
+                longitude: hotel.long || null,
+                
+                // Дополнительная информация
+                instantConfirm: hotelData.extras?.instant_confirm || false,
+                isHot: hotelData.extras?.cheap || false,
+                pricePerNight: hotelData.price_per_night || Math.round(hotelPrice / nights),
+                availability: hotelData.availability?.hotel || 'available',
+                
+                // Оценка соответствия запросу (можно улучшить алгоритм)
+                matchScore: calculateMatchScore(hotel, hotelData, params),
               };
               
-              // Получаем расширенные данные об отеле, если это возможно
-              try {
-                const hotelDetails = await fetchHotelDetails(hotelId);
-                if (hotelDetails) {
-                  // Обогащаем объект тура дополнительными данными
-                  tour.images = hotelDetails.images || [tour.image]; // Используем изображения из деталей или основное изображение
-                  tour.departureAirport = hotelDetails.departureAirport || tour.departureAirport;
-                  tour.departureCity = hotelDetails.departureCity || tour.departureCity;
-                  tour.arrivalAirport = hotelDetails.arrivalAirport || tour.arrivalAirport;
-                  tour.arrivalCity = hotelDetails.arrivalCity || tour.arrivalCity;
-                  tour.airline = hotelDetails.airline || tour.airline;
-                  tour.beachDistance = hotelDetails.beachDistance || tour.beachDistance;
-                  tour.cityDistance = hotelDetails.cityDistance || tour.cityDistance;
-                  tour.airportDistance = hotelDetails.airportDistance || tour.airportDistance;
-                  tour.constructionYear = hotelDetails.constructionYear || tour.constructionYear;
-                  tour.renovationYear = hotelDetails.renovationYear || tour.renovationYear;
-                  tour.attractions = hotelDetails.attractions || tour.attractions;
-                }
-              } catch (detailsError) {
-                console.error(`Ошибка при получении деталей отеля ${hotelId}:`, (detailsError as Error).message);
-              }
-              
-              // Добавляем тур в результаты
               result.push(tour);
-            } else {
-              console.log(`Тур "${hotelName}" пропущен, так как не содержит обязательные поля`);
             }
           } catch (error) {
-            console.error(`Ошибка при обработке отеля:`, (error as Error).message);
+            console.error(`Ошибка при обработке отеля: ${error}`);
+            continue;
           }
         }
         
-        console.log(`LevelTravel provider: successfully processed ${result.length} tours`);
+        console.log(`Level.Travel: обработано туров: ${result.length}`);
         return result;
       } catch (error) {
         const errorMessage = (error as Error).message || 'Unknown error';
@@ -897,4 +959,88 @@ export async function fetchToursFromLevelTravel(params: TourSearchParams): Promi
     err.provider = "Level.Travel";
     throw err;
   }
+}
+
+/**
+ * Генерация партнерской ссылки
+ */
+function generateAffiliateLink(
+  hotel: any, 
+  variant: any, 
+  params: TourSearchParams
+): string {
+  const baseUrl = process.env.LEVEL_TRAVEL_AFFILIATE_URL || 'https://level.travel';
+  const marker = process.env.LEVEL_TRAVEL_MARKER || '627387';
+  
+  // Формируем параметры для ссылки
+  const urlParams = new URLSearchParams({
+    marker: marker,
+    hotel_id: hotel.id.toString(),
+    tour_id: variant.tour_id || '',
+    start_date: params.startDate?.toISOString().split('T')[0] || '',
+    nights: (params.nights || 7).toString(),
+    adults: (params.adults || 2).toString(),
+    kids: (params.children || 0).toString()
+  });
+  
+  // Если есть возраст детей
+  if (params.childrenAges && params.childrenAges.length > 0) {
+    urlParams.append('kids_ages', params.childrenAges.join(','));
+  }
+  
+  // Используем базовый URL из партнерской ссылки
+  if (baseUrl.includes('level.tpx.lt')) {
+    // Это уже партнерская ссылка
+    return `${baseUrl}?${urlParams.toString()}`;
+  } else {
+    // Обычная ссылка Level.Travel
+    return `https://level.travel/tours/${hotel.id}?${urlParams.toString()}`;
+  }
+}
+
+/**
+ * Расчет оценки соответствия
+ */
+function calculateMatchScore(hotel: any, hotelData: any, params: TourSearchParams): number {
+  let score = 50; // Базовая оценка
+  
+  // Увеличиваем оценку за хороший рейтинг
+  if (hotel.rating) {
+    score += hotel.rating * 2;
+  }
+  
+  // Увеличиваем оценку за количество отзывов
+  if (hotel.reviews_count > 10) {
+    score += 5;
+  }
+  if (hotel.reviews_count > 50) {
+    score += 5;
+  }
+  
+  // Учитываем звездность
+  if (hotel.stars >= 4) {
+    score += 10;
+  }
+  if (hotel.stars === 5) {
+    score += 10;
+  }
+  
+  // Учитываем удобства для семей с детьми
+  if (params.children && params.children > 0) {
+    if (hotel.features?.kids_club) score += 10;
+    if (hotel.features?.kids_pool) score += 5;
+    if (hotel.features?.kids_menu) score += 5;
+  }
+  
+  // Учитываем близость к морю
+  if (hotel.features?.beach_distance && hotel.features.beach_distance < 500) {
+    score += 10;
+  }
+  
+  // Учитываем мгновенное подтверждение
+  if (hotelData.extras?.instant_confirm) {
+    score += 5;
+  }
+  
+  return Math.min(100, score);
 }

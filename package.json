@@ -37,7 +37,7 @@
     "@types/swagger-jsdoc": "^6.0.4",
     "@types/swagger-ui-express": "^4.1.8",
     "@types/uuid": "^10.0.0",
-    "axios": "^1.7.2",
+    "axios": "^1.11.0",
     "bull": "^4.11.5",
     "cls-hooked": "^4.2.2",
     "cookie-parser": "^1.4.7",
