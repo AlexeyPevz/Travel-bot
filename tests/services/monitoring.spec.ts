@@ -2,8 +2,7 @@ import { monitorProfileTours, checkDeadline } from '../../server/services/monito
 
 jest.mock('../../server/bot', () => ({ getBot: () => ({ sendMessage: jest.fn(), sendPhoto: jest.fn() }) }));
 jest.mock('../../server/providers', () => ({ searchTours: jest.fn(async () => ([{
-  provider: 'level.travel', id: 'ext-1', title: 'Tour 1', country: 'Турция', resort: 'Kemer', hotelName: 'Hotel 1', stars: 5,
-  beachLine: 1, mealType: 'AI', price: 150000, startDate: new Date(), endDate: new Date(), nights: 7, rating: 9, photoUrl: '', link: 'https://example.com'
+  provider: 'level.travel', id: 'ext-1', title: 'Tour 1', price: 150000, image: '', link: 'https://example.com'
 }])) }));
 
 jest.mock('../../db', () => ({
@@ -34,7 +33,7 @@ describe('monitoring service', () => {
   it('monitorProfileTours saves match and sends notification for high score', async () => {
     // profile fetch
     (db.select as jest.Mock)
-      .mockReturnValueOnce(chainSelect([{ id: 1, userId: 'u1', countries: ['Турция'], budget: 200000, priorities: { price: 9 } }]))
+      .mockReturnValueOnce(chainSelect([{ id: 1, userId: 'u1', countries: ['Турция'], budget: 200000, priorities: { price: 9 }, startDate: new Date(), endDate: new Date() }]))
       // existing tour not found
       .mockReturnValueOnce({ from: jest.fn().mockReturnValue({ where: jest.fn().mockReturnValue({ limit: jest.fn().mockReturnValue([]) }) }) })
       // existing match not found
@@ -42,7 +41,7 @@ describe('monitoring service', () => {
 
     await monitorProfileTours('u1', 1);
     expect(searchTours).toHaveBeenCalled();
-    expect(db.insert).toHaveBeenCalled(); // tour or match
+    expect(db.insert).toHaveBeenCalled();
   });
 
   it('checkDeadline suggests alternatives and completes task', async () => {
