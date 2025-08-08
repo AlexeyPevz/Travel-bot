@@ -64,7 +64,7 @@ export function correlationIdMiddleware(req: Request, res: Response, next: NextF
 
     // Handle response finish
     const originalEnd = res.end;
-    res.end = function(...args: any[]) {
+    res.end = function(chunk?: any, encoding?: any, cb?: any) {
       // Log request completion
       const duration = Date.now() - (req.startTime || 0);
       logger.info({
@@ -76,9 +76,9 @@ export function correlationIdMiddleware(req: Request, res: Response, next: NextF
         duration,
       });
 
-      // Call original end
-      return originalEnd.apply(res, args);
-    };
+      // Call original end with proper signature
+      return (originalEnd as any).call(res, chunk, encoding, cb);
+    } as any;
 
     next();
   });

@@ -46,7 +46,7 @@ router.get('/:userId', requireAuth, authorizeOwner('userId'), asyncHandler(async
   logger.info(`Fetching profile for user ${userId}`);
   
   // Check cache first
-  const cacheKey = cacheKeys.userProfile(userId);
+  const cacheKey = cacheKeys.profile(userId);
   const cached = await cache.get(cacheKey);
   if (cached) {
     logger.info(`Profile found in cache for user ${userId}`);
@@ -130,7 +130,7 @@ router.post('/', requireAuth, authorizeOwner('userId'), validateBody(updateProfi
     .returning();
     
   // Cache the new profile
-  const cacheKey = cacheKeys.userProfile(profileData.userId);
+  const cacheKey = cacheKeys.profile(profileData.userId);
   await cache.set(cacheKey, newProfile, CACHE_TTL.PROFILE);
   
   res.status(201).json(newProfile);
@@ -159,8 +159,8 @@ router.put('/:userId', requireAuth, authorizeOwner('userId'), validateBody(updat
   }
   
   // Invalidate cache
-  const cacheKey = cacheKeys.userProfile(userId);
-  await cache.delete(cacheKey);
+  const cacheKey = cacheKeys.profile(userId);
+  await cache.del(cacheKey);
   
   res.json(updatedProfile);
 }));
@@ -182,8 +182,8 @@ router.delete('/:userId', requireAuth, authorizeOwner('userId'), asyncHandler(as
   }
   
   // Invalidate cache
-  const cacheKey = cacheKeys.userProfile(userId);
-  await cache.delete(cacheKey);
+  const cacheKey = cacheKeys.profile(userId);
+  await cache.del(cacheKey);
   
   res.json({ message: 'Profile deleted successfully' });
 }));

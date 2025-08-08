@@ -347,6 +347,6 @@ export function createError(
     case 'DATABASE':
       return new DatabaseError(message, details);
     default:
-      return new AppError(message, 500, false, 'INTERNAL_ERROR', details);
+      return new ValidationError(message, details);
   }
 }
