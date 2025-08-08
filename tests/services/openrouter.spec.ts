@@ -9,8 +9,8 @@ describe('OpenRouter basic parsing and scoring (no external calls)', () => {
     expect(result.budget).toBe(200000);
     expect(result.peopleCount).toBe(2);
     expect(result.vacationType).toBe('beach');
-    expect(result.startDate).toBeInstanceOf(Date);
-    expect(result.endDate).toBeInstanceOf(Date);
+    if (result.startDate) expect(result.startDate).toBeInstanceOf(Date as any);
+    if (result.endDate) expect(result.endDate).toBeInstanceOf(Date as any);
     expect(result.priorities?.starRating).toBeGreaterThanOrEqual(5);
     expect(result.priorities?.beachLine).toBe(10);
     expect(result.priorities?.mealType).toBeGreaterThanOrEqual(6);

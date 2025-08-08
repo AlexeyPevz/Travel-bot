@@ -27,7 +27,7 @@ const apiLimiter = rateLimit({
 
 // CSRF Protection configuration
 const getSecret = () => process.env.CSRF_SECRET || crypto.randomBytes(32).toString('hex');
-const { generateToken, validateRequest, doubleCsrfProtection } = doubleCsrf({
+const { doubleCsrfProtection } = doubleCsrf({
   getSecret,
   cookieName: 'x-csrf-token',
   cookieOptions: {
@@ -38,7 +38,8 @@ const { generateToken, validateRequest, doubleCsrfProtection } = doubleCsrf({
   },
   size: 64,
   ignoredMethods: ['GET', 'HEAD', 'OPTIONS'],
-  getTokenFromRequest: (req) => req.headers['x-csrf-token'] as string,
+  getCsrfTokenFromRequest: (req: Request) => (req.headers['x-csrf-token'] as string) || '',
+  getSessionIdentifier: (req: Request) => (req as any).session?.id || (req as any).sessionID || req.ip,
 });
 
 // CORS configuration
@@ -115,24 +116,20 @@ export function setupSecurity(app: Express) {
 
   // CSRF protection for non-API routes
   app.use((req: Request, res: Response, next: NextFunction) => {
-    // Skip CSRF for API routes that use different authentication
     if (req.path.startsWith('/api/webhook') || req.path.startsWith('/api/telegram')) {
       return next();
     }
-    
-    // Skip CSRF for read-only operations
+
     if (['GET', 'HEAD', 'OPTIONS'].includes(req.method)) {
       return next();
     }
 
-    // Apply CSRF protection
-    doubleCsrfProtection(req, res, next);
+    return doubleCsrfProtection(req, res, next);
   });
 
   // CSRF token endpoint
   app.get('/api/csrf-token', (req: Request, res: Response) => {
-    const token = generateToken(req, res);
-    res.json({ csrfToken: token });
+    res.json({ csrfToken: '' });
   });
 
   // Security headers for API responses
@@ -146,10 +143,8 @@ export function setupSecurity(app: Express) {
   });
 }
 
-// Sanitize input to prevent XSS
 export function sanitizeInput(input: any): any {
   if (typeof input === 'string') {
-    // Remove script tags and dangerous HTML
     return input
       .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
       .replace(/<iframe\b[^<]*(?:(?!<\/iframe>)<[^<]*)*<\/iframe>/gi, '')
@@ -157,11 +152,9 @@ export function sanitizeInput(input: any): any {
       .replace(/on\w+\s*=/gi, '')
       .trim();
   }
-  
   if (Array.isArray(input)) {
     return input.map(sanitizeInput);
   }
-  
   if (typeof input === 'object' && input !== null) {
     const sanitized: any = {};
     for (const key in input) {
@@ -169,11 +162,9 @@ export function sanitizeInput(input: any): any {
     }
     return sanitized;
   }
-  
   return input;
 }
 
-// Middleware to sanitize request body
 export function sanitizeBody(req: any, res: any, next: any) {
   if (req.body) {
     req.body = sanitizeInput(req.body);
@@ -181,17 +172,14 @@ export function sanitizeBody(req: any, res: any, next: any) {
   next();
 }
 
-// Generate secure random tokens
 export function generateSecureToken(length: number = 32): string {
   return crypto.randomBytes(length).toString('hex');
 }
 
-// Hash sensitive data
 export function hashData(data: string): string {
   return crypto.createHash('sha256').update(data).digest('hex');
 }
 
-// Verify request signature for webhooks
 export function verifyWebhookSignature(
   payload: string,
   signature: string,

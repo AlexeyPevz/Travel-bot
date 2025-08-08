@@ -1,11 +1,11 @@
-import cache, { CACHE_KEYS, CACHE_TTL, redis } from '../../server/services/cache';
+import cache, { CACHE_KEYS, CACHE_TTL } from '../../server/services/cache';
 
 describe('Cache service', () => {
   it('sets and gets values with TTL', async () => {
     const key = `test:key:${Date.now()}`;
     const value = { hello: 'world' };
-    await cache.set(key, value, 1);
-    const got = await cache.get<typeof value>(key);
+    await cache.set(key, value as any, 1);
+    const got = await cache.get(key);
     expect(got).toEqual(value);
   });
 

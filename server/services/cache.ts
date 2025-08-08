@@ -209,4 +209,4 @@ setInterval(cleanupCache, 24 * 60 * 60 * 1000);
 
 export { cacheKeys as CACHE_KEYS };
 export { redis };
-export default redis;
+export default cache;
