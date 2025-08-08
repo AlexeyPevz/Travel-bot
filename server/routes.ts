@@ -38,6 +38,8 @@ import v1Routes from './routes/v1';
 import { setupSwagger } from './docs/swagger';
 import authRoutes from './routes/auth';
 import { requireAuth, optionalAuth, authorizeOwner } from './middleware/auth';
+import { fetchToursFromAllProviders } from './providers/providers';
+import { hotelDeduplicationService } from './services/hotelDeduplication';
 
 export async function registerRoutes(app: Express): Promise<Server> {
   const server = createServer(app);
@@ -401,6 +403,102 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       apiLogger.error('Error fetching recommended tours:', error);
       res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  app.post("/api/tours/search", async (req: express.Request, res: express.Response) => {
+    const { 
+      destination, 
+      startDate, 
+      endDate, 
+      adults = 2, 
+      children = 0,
+      childrenAges = [],
+      departureCity = 'Москва',
+      nights,
+      budget,
+      mealType,
+      hotelStars,
+      searchId,
+      userId
+    } = req.body;
+    
+    // Валидация обязательных параметров
+    if (!destination || !startDate || !nights) {
+      return res.status(400).json({ 
+        error: "Необходимо указать направление, дату начала и количество ночей" 
+      });
+    }
+
+    try {
+      // Поиск туров через провайдеров
+      const searchParams = {
+        destination,
+        startDate: new Date(startDate),
+        endDate: endDate ? new Date(endDate) : new Date(new Date(startDate).getTime() + nights * 24 * 60 * 60 * 1000),
+        adults,
+        children,
+        childrenAges,
+        departureCity,
+        nights,
+        budget,
+        mealType,
+        hotelStars
+      };
+
+      // Получаем туры от всех провайдеров
+      const tours = await fetchToursFromAllProviders(searchParams, searchId);
+      
+      // Импортируем сервис дедупликации
+      const { hotelDeduplicationService } = await import('./services/hotelDeduplication');
+      
+      // Группируем туры по отелям и создаем карточки для MiniApp
+      const tourCards = hotelDeduplicationService.groupToursByHotel(tours);
+      
+      // Формируем результат в формате MiniApp
+      const searchResults = {
+        query: {
+          destination,
+          startDate,
+          endDate: searchParams.endDate.toISOString(),
+          adults,
+          children,
+          childrenAges
+        },
+        results: tourCards,
+        totalCount: tourCards.length,
+        filters: {
+          // Собираем доступные фильтры из результатов
+          priceRange: {
+            min: Math.min(...tourCards.map(card => card.priceRange.min)),
+            max: Math.max(...tourCards.map(card => card.priceRange.max))
+          },
+          stars: [...new Set(tourCards.map(card => card.hotel.stars))].sort(),
+          meals: [...new Set(tourCards.flatMap(card => 
+            card.options.map(opt => opt.meal.code)
+          ))],
+          providers: [...new Set(tourCards.flatMap(card => 
+            card.options.map(opt => opt.provider)
+          ))]
+        },
+        sorting: {
+          current: 'match',
+          available: ['price', 'rating', 'popularity', 'match']
+        },
+        pagination: {
+          page: 1,
+          pageSize: 20,
+          totalPages: Math.ceil(tourCards.length / 20)
+        }
+      };
+      
+      res.json(searchResults);
+    } catch (error) {
+      apiLogger.error('Error searching tours:', error);
+      res.status(500).json({ 
+        error: "Ошибка при поиске туров",
+        message: error instanceof Error ? error.message : "Неизвестная ошибка"
+      });
     }
   });
 
