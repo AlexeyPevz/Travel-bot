@@ -54,7 +54,7 @@ export async function startBot(server: Server): Promise<TelegramBot> {
 
     // Создаем новый экземпляр бота без polling
     const options: TelegramBot.ConstructorOptions = {
-      polling: false  // Не используем polling, чтобы избежать конфликтов
+      polling: false  // По умолчанию не используем polling
     };
 
     bot = new TelegramBot(token, options);
@@ -64,11 +64,7 @@ export async function startBot(server: Server): Promise<TelegramBot> {
     const { gracefulShutdown } = await import('../utils/shutdown');
     gracefulShutdown.setBot(bot);
     
-    // Создаем ручной API endpoint для обработки Telegram команд
-    // POST /api/telegram/command/:command
-    // Например: POST /api/telegram/command/help
-    
-    // Объединяем в один подход для всех команд
+    // Регистрируем обработчики команд и сообщений
     const commandHandlers = {
       'start': async (msg: TelegramBot.Message, match?: RegExpExecArray | null) => {
         const chatId = msg.chat.id;
@@ -165,8 +161,17 @@ export async function startBot(server: Server): Promise<TelegramBot> {
       await handleCallback(bot, callbackQuery);
     });
     
-    // Запускаем поллинг только после регистрации всех обработчиков
-    await bot.startPolling();
+    const useWebhook = process.env.TELEGRAM_USE_WEBHOOK === 'true';
+    const appUrl = process.env.APP_URL;
+
+    if (useWebhook && appUrl) {
+      const webhookUrl = `${appUrl.replace(/\/$/, '')}/api/telegram/webhook`;
+      await bot.setWebHook(webhookUrl);
+      console.log('Telegram webhook set to:', webhookUrl);
+    } else {
+      // Запускаем поллинг только если не используем webhook
+      await bot.startPolling();
+    }
 
     return bot;
   } catch (error) {
