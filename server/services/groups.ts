@@ -101,10 +101,10 @@ export async function aggregateGroupProfiles(groupId: number) {
   // Пересечение дат
   const startDates = memberProfiles
     .filter(p => p.startDate)
-    .map(p => p.startDate!.getTime());
+    .map(p => new Date(p.startDate as any).getTime());
   const endDates = memberProfiles
     .filter(p => p.endDate)
-    .map(p => p.endDate!.getTime());
+    .map(p => new Date(p.endDate as any).getTime());
 
   if (startDates.length > 0) {
     aggregatedProfile.startDate = new Date(Math.max(...startDates));
@@ -298,7 +298,7 @@ export async function sendVotingSummary(bot: TelegramBot, chatId: string, groupI
     message += `\n🔍 Рекомендация: Низкая заинтересованность. Рассмотрите другие варианты.`;
   }
 
-  await bot.sendMessage(chatId, message);
+  await bot.sendMessage(chatId as any, message);
 }
 
 /**
