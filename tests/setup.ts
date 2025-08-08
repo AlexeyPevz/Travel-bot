@@ -27,6 +27,14 @@ jest.mock('ioredis', () => {
   return Redis;
 });
 
+// Mock graceful shutdown utilities
+jest.mock('../server/utils/shutdown', () => ({
+  gracefulShutdown: {
+    setBot: jest.fn(), setServer: jest.fn(),
+  },
+  onShutdown: jest.fn(),
+}));
+
 // Extend global type
 declare global {
   var testHelpers: {
