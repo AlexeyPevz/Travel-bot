@@ -153,15 +153,36 @@ function enhanceImageQuality(imageUrl: string | undefined): string | undefined {
 /**
  * Создает реферальную ссылку для перехода к отелю/туру
  * @param hotelId ID отеля в системе Level.Travel
+ * @param params Дополнительные параметры для ссылки
  * @returns Ссылка с реферальной информацией
  */
-function createReferralLink(hotelId: string | number): string {
-  if (!hotelId) {
-    return `https://level.travel/?ref=${LEVEL_TRAVEL_PARTNER_ID}`; // Основной сайт, если ID не указан
+function createReferralLink(hotelId: string | number, params?: any): string {
+  const affiliateUrl = process.env.LEVEL_TRAVEL_AFFILIATE_URL;
+  const marker = process.env.LEVEL_TRAVEL_MARKER || '627387';
+  
+  // Если есть готовая партнерская ссылка
+  if (affiliateUrl && affiliateUrl.includes('level.tpx.lt')) {
+    const urlParams = new URLSearchParams({
+      hotel_id: hotelId.toString(),
+      marker: marker
+    });
+    
+    if (params) {
+      if (params.start_date) urlParams.append('start_date', params.start_date);
+      if (params.nights) urlParams.append('nights', params.nights.toString());
+      if (params.adults) urlParams.append('adults', params.adults.toString());
+      if (params.kids) urlParams.append('kids', params.kids.toString());
+    }
+    
+    return `${affiliateUrl}&${urlParams.toString()}`;
   }
   
-  // Добавляем партнерский ID к ссылке на отель в правильном формате
-  return `https://level.travel/hotels/${hotelId}?ref=${LEVEL_TRAVEL_PARTNER_ID}`;
+  // Иначе используем стандартную партнерскую ссылку
+  if (!hotelId) {
+    return `https://level.travel/?partner_id=${LEVEL_TRAVEL_PARTNER_ID}`;
+  }
+  
+  return `https://level.travel/hotels/${hotelId}?partner_id=${LEVEL_TRAVEL_PARTNER_ID}`;
 }
 
 /**
@@ -851,7 +872,12 @@ export async function fetchToursFromLevelTravel(params: TourSearchParams): Promi
                 nights: nights,
                 roomType: hotel.room_name || 'Стандартный номер',
                 mealType: parseMealType(hotel.meal_name || ''),
-                link: createReferralLink(hotelId),
+                link: createReferralLink(hotelId, {
+                  start_date: startDate.toISOString().split('T')[0],
+                  nights: nights,
+                  adults: params.adults || 2,
+                  kids: params.children || 0
+                }),
                 image: enhanceImageQuality(hotelImage) || '',
                 
                 // Дополнительные данные
@@ -919,5 +945,42 @@ export async function fetchToursFromLevelTravel(params: TourSearchParams): Promi
     const err = new Error(`Error fetching tours from Level.Travel: ${errorMessage}`) as ProviderError;
     err.provider = "Level.Travel";
     throw err;
+  }
+}
+
+/**
+ * Генерация партнерской ссылки
+ */
+function generateAffiliateLink(
+  hotel: any, 
+  variant: any, 
+  params: TourSearchParams
+): string {
+  const baseUrl = process.env.LEVEL_TRAVEL_AFFILIATE_URL || 'https://level.travel';
+  const marker = process.env.LEVEL_TRAVEL_MARKER || '627387';
+  
+  // Формируем параметры для ссылки
+  const urlParams = new URLSearchParams({
+    marker: marker,
+    hotel_id: hotel.id.toString(),
+    tour_id: variant.tour_id || '',
+    start_date: params.startDate?.toISOString().split('T')[0] || '',
+    nights: (params.nights || 7).toString(),
+    adults: (params.adults || 2).toString(),
+    kids: (params.children || 0).toString()
+  });
+  
+  // Если есть возраст детей
+  if (params.childrenAges && params.childrenAges.length > 0) {
+    urlParams.append('kids_ages', params.childrenAges.join(','));
+  }
+  
+  // Используем базовый URL из партнерской ссылки
+  if (baseUrl.includes('level.tpx.lt')) {
+    // Это уже партнерская ссылка
+    return `${baseUrl}?${urlParams.toString()}`;
+  } else {
+    // Обычная ссылка Level.Travel
+    return `https://level.travel/tours/${hotel.id}?${urlParams.toString()}`;
   }
 }
