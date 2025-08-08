@@ -37,14 +37,16 @@ const router = Router();
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-router.get('/:userId', asyncHandler(async (req, res) => {
+import { requireAuth, authorizeOwner } from '../../middleware/auth';
+
+router.get('/:userId', requireAuth, authorizeOwner('userId'), asyncHandler(async (req, res) => {
   const logger = createRequestLogger();
   const { userId } = req.params;
   
   logger.info(`Fetching profile for user ${userId}`);
   
   // Check cache first
-  const cacheKey = cacheKeys.userProfile(userId);
+  const cacheKey = cacheKeys.profile(userId);
   const cached = await cache.get(cacheKey);
   if (cached) {
     logger.info(`Profile found in cache for user ${userId}`);
@@ -98,7 +100,7 @@ router.get('/:userId', asyncHandler(async (req, res) => {
  *                 profile:
  *                   $ref: '#/components/schemas/Profile'
  */
-router.post('/', validateBody(updateProfileSchema), asyncHandler(async (req, res) => {
+router.post('/', requireAuth, authorizeOwner('userId'), validateBody(updateProfileSchema), asyncHandler(async (req, res) => {
   const logger = createRequestLogger();
   const profileData = req.body;
   
@@ -128,14 +130,14 @@ router.post('/', validateBody(updateProfileSchema), asyncHandler(async (req, res
     .returning();
     
   // Cache the new profile
-  const cacheKey = cacheKeys.userProfile(profileData.userId);
+  const cacheKey = cacheKeys.profile(profileData.userId);
   await cache.set(cacheKey, newProfile, CACHE_TTL.PROFILE);
   
   res.status(201).json(newProfile);
 }));
 
 // Update profile
-router.put('/:userId', validateBody(updateProfileSchema), asyncHandler(async (req, res) => {
+router.put('/:userId', requireAuth, authorizeOwner('userId'), validateBody(updateProfileSchema), asyncHandler(async (req, res) => {
   const logger = createRequestLogger();
   const { userId } = req.params;
   const updates = req.body;
@@ -157,14 +159,14 @@ router.put('/:userId', validateBody(updateProfileSchema), asyncHandler(async (re
   }
   
   // Invalidate cache
-  const cacheKey = cacheKeys.userProfile(userId);
-  await cache.delete(cacheKey);
+  const cacheKey = cacheKeys.profile(userId);
+  await cache.del(cacheKey);
   
   res.json(updatedProfile);
 }));
 
 // Delete profile
-router.delete('/:userId', asyncHandler(async (req, res) => {
+router.delete('/:userId', requireAuth, authorizeOwner('userId'), asyncHandler(async (req, res) => {
   const logger = createRequestLogger();
   const { userId } = req.params;
   
@@ -180,8 +182,8 @@ router.delete('/:userId', asyncHandler(async (req, res) => {
   }
   
   // Invalidate cache
-  const cacheKey = cacheKeys.userProfile(userId);
-  await cache.delete(cacheKey);
+  const cacheKey = cacheKeys.profile(userId);
+  await cache.del(cacheKey);
   
   res.json({ message: 'Profile deleted successfully' });
 }));

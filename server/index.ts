@@ -11,6 +11,7 @@ import logger, { stream } from "./utils/logger";
 import morgan from "morgan";
 
 const app = express();
+export { app };
 
 // Security middleware
 setupSecurity(app);
@@ -61,8 +62,11 @@ app.use((req, res, next) => {
   next();
 });
 
+let server: import('http').Server | null = null;
+export { server };
+
 (async () => {
-  const server = await registerRoutes(app);
+  server = await registerRoutes(app);
 
   // Import error handler
   const { errorHandler } = await import("./middleware/errorHandler");

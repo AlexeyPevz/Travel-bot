@@ -63,17 +63,25 @@ export async function generateTokens(payload: Omit<JWTPayload, 'type'>): Promise
     type: 'refresh'
   };
 
-  const accessToken = jwt.sign(accessPayload, JWT_CONFIG.ACCESS_TOKEN_SECRET, {
-    expiresIn: JWT_CONFIG.ACCESS_TOKEN_EXPIRY,
-    issuer: JWT_CONFIG.ISSUER,
-    audience: JWT_CONFIG.AUDIENCE
-  });
+  const accessToken = jwt.sign(
+    accessPayload,
+    JWT_CONFIG.ACCESS_TOKEN_SECRET as jwt.Secret,
+    {
+      expiresIn: JWT_CONFIG.ACCESS_TOKEN_EXPIRY as any,
+      issuer: JWT_CONFIG.ISSUER,
+      audience: JWT_CONFIG.AUDIENCE,
+    } as jwt.SignOptions
+  );
 
-  const refreshToken = jwt.sign(refreshPayload, JWT_CONFIG.REFRESH_TOKEN_SECRET, {
-    expiresIn: JWT_CONFIG.REFRESH_TOKEN_EXPIRY,
-    issuer: JWT_CONFIG.ISSUER,
-    audience: JWT_CONFIG.AUDIENCE
-  });
+  const refreshToken = jwt.sign(
+    refreshPayload,
+    JWT_CONFIG.REFRESH_TOKEN_SECRET as jwt.Secret,
+    {
+      expiresIn: JWT_CONFIG.REFRESH_TOKEN_EXPIRY as any,
+      issuer: JWT_CONFIG.ISSUER,
+      audience: JWT_CONFIG.AUDIENCE,
+    } as jwt.SignOptions
+  );
 
   // Сохраняем refresh token в кеше для возможности инвалидации
   const refreshCacheKey = `refresh_token:${payload.userId}`;
@@ -217,7 +225,7 @@ export function decodeToken(token: string): DecodedToken | null {
 /**
  * Проверяет существование пользователя в БД
  */
-async function checkUserExists(userId: string): Promise<boolean> {
+export async function checkUserExists(userId: string): Promise<boolean> {
   const [user] = await db.select({ id: profiles.id })
     .from(profiles)
     .where(eq(profiles.userId, userId))
@@ -229,7 +237,7 @@ async function checkUserExists(userId: string): Promise<boolean> {
 /**
  * Конвертирует время жизни токена в секунды
  */
-function getTokenExpirySeconds(expiry: string): number {
+export function getTokenExpirySeconds(expiry: string): number {
   const match = expiry.match(/^(\d+)([smhd])$/);
   if (!match) {
     return 900; // 15 минут по умолчанию
@@ -273,7 +281,6 @@ export async function generateTelegramWebAppToken(initData: string): Promise<{
     // Создаем новый профиль
     await db.insert(profiles).values({
       userId,
-      telegramUsername: userData.username,
       name: userData.first_name
     });
   }

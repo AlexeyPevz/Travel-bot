@@ -7,7 +7,7 @@ import { profiles, tours, tourMatches, groupProfiles, watchlists, tourPriorities
 import { eq, and, desc } from 'drizzle-orm';
 import { searchTours } from './providers';
 import { analyzeTourRequest, calculateTourMatchScore } from './services/openrouter';
-import { startBot } from './bot';
+import { startBot, getBot } from './bot';
 import { startMonitoring } from './services/monitoring';
 import { createOrUpdateGroupProfile, aggregateGroupProfiles, handleGroupVote } from './services/groups';
 import { 
@@ -55,6 +55,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // API versioning middleware
   app.use('/api', apiVersionMiddleware);
+
+  // Telegram webhook (если включен)
+  app.post('/api/telegram/webhook', asyncHandler(async (req: Request, res: Response) => {
+    try {
+      if (process.env.TELEGRAM_USE_WEBHOOK !== 'true') {
+        return res.status(404).json({ ok: false, description: 'Webhook disabled' });
+      }
+      const update = req.body;
+      const bot = getBot();
+      // Передаем апдейт напрямую боту
+      await (bot as any).processUpdate(update);
+      res.json({ ok: true });
+    } catch (error) {
+      res.status(500).json({ ok: false });
+    }
+  }));
 
   // Authentication routes (version-agnostic)
   app.use('/api/auth', authRoutes);

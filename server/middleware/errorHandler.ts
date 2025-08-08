@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
-import { AppError, sendErrorResponse } from '../utils/errors';
+import { AppError } from '../utils/errors';
 import { ZodError } from 'zod';
 import logger from '../utils/logger';
 import { getCorrelationId } from './tracing';
@@ -33,11 +33,17 @@ function handleDevelopmentError(err: Error, req: Request, res: Response) {
   }
 
   if (err instanceof AppError) {
-    return sendErrorResponse(res, err);
+    return res.status(err.statusCode).json({
+      error: {
+        message: err.message,
+        statusCode: err.statusCode,
+        timestamp: new Date().toISOString(),
+      }
+    });
   }
 
   // Unknown errors
-  sendErrorResponse(res, err, 500);
+  res.status(500).json({ error: { message: 'Internal server error', statusCode: 500, timestamp: new Date().toISOString() } });
 }
 
 // Production error handler
@@ -62,7 +68,13 @@ function handleProductionError(err: Error, req: Request, res: Response) {
   }
 
   if (err instanceof AppError && err.isOperational) {
-    return sendErrorResponse(res, err);
+    return res.status(err.statusCode).json({
+      error: {
+        message: err.message,
+        statusCode: err.statusCode,
+        timestamp: new Date().toISOString(),
+      }
+    });
   }
 
   // Don't leak error details in production

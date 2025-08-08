@@ -6,10 +6,12 @@ import Header from "@/components/Header";
 import { Loader2 } from "lucide-react";
 
 // Lazy load page components
-const Home = lazy(() => import("@/pages/Home"));
-const Profile = lazy(() => import("@/pages/Profile"));
-const Requests = lazy(() => import("@/pages/Requests"));
-const RequestDetail = lazy(() => import("@/pages/RequestDetail"));
+const Home = lazy(() => import("@/pages/home"));
+const Profile = lazy(() => import("@/pages/profile"));
+const Tours = lazy(() => import("@/pages/tours"));
+const Groups = lazy(() => import("@/pages/groups"));
+const Watchlist = lazy(() => import("@/pages/watchlist"));
+const TravelBuddy = lazy(() => import("@/pages/travelBuddy"));
 
 // Loading component
 function PageLoader() {
@@ -62,8 +64,10 @@ function App() {
           <Switch>
             <Route path="/" component={Home} />
             <Route path="/profile" component={Profile} />
-            <Route path="/requests" component={Requests} />
-            <Route path="/requests/:id" component={RequestDetail} />
+            <Route path="/tours" component={Tours} />
+            <Route path="/groups" component={Groups} />
+            <Route path="/watchlist" component={Watchlist} />
+            <Route path="/travel-buddy" component={TravelBuddy} />
             <Route>
               <div className="text-center py-12">
                 <h2 className="text-2xl font-semibold text-gray-700">

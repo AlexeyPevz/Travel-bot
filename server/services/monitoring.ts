@@ -11,56 +11,26 @@ import { onShutdown } from '../utils/shutdown';
 // Минимальный порог соответствия для отправки уведомления
 const NOTIFICATION_THRESHOLD = 85;
 
-/**
- * Запуск фонового мониторинга
- */
 export async function startMonitoring() {
   logger.info('Starting tour monitoring service...');
-  
   try {
-    // Получаем все активные задачи мониторинга
-    const activeTasks = await db
-      .select()
-      .from(monitoringTasks)
-      .where(eq(monitoringTasks.isActive, true));
-
-    logger.info(`Found ${activeTasks.length} active monitoring tasks`);
-
-    // Перезапускаем задачи
-    for (const task of activeTasks) {
-      const jobId = `monitoring-${task.userId}-${task.requestId}`;
-      
-      // Проверяем, нет ли уже такой задачи
-      const existingJob = await monitoringQueue.getJob(jobId);
-      if (!existingJob) {
-        await scheduleMonitoring(task.userId, task.requestId, task.interval);
-      }
-    }
-
-    logger.info('All monitoring tasks scheduled');
+    await processPendingTasks();
+    logger.info('Monitoring cycle processed');
   } catch (error) {
     logger.error('Error starting monitoring service:', error);
   }
-
-  // Register shutdown handler
   onShutdown('monitoring-service', async () => {
     logger.info('Stopping monitoring service...');
-    // Any cleanup specific to monitoring service
   });
 }
 
-/**
- * Обработка ожидающих задач мониторинга
- */
 async function processPendingTasks() {
   const now = new Date();
-  
-  // Получаем активные задачи, которые пора выполнить
   const tasks = await db.select()
     .from(monitoringTasks)
     .where(
       and(
-        eq(monitoringTasks.status, 'active'),
+        eq(monitoringTasks.status, 'active' as any),
         lte(monitoringTasks.nextRunAt, now)
       )
     );
@@ -71,21 +41,26 @@ async function processPendingTasks() {
     try {
       switch (task.taskType) {
         case 'profile_monitor':
-          await monitorProfileTours(task);
+          if (task.userId && task.profileId) {
+            await monitorProfileTours(task.userId, task.profileId);
+          }
           break;
         case 'deadline_check':
-          await checkDeadline(task);
+          if (task.userId && task.profileId) {
+            await checkDeadline(task.userId, task.profileId);
+          }
           break;
         case 'group_monitor':
-          await monitorGroupTours(task);
+          if (task.groupId) {
+            await monitorGroupTours(task.groupId);
+          }
           break;
       }
 
-      // Обновляем время следующего запуска
       await db.update(monitoringTasks)
         .set({
           lastRunAt: now,
-          nextRunAt: new Date(now.getTime() + 60 * 60 * 1000) // +1 час
+          nextRunAt: new Date(now.getTime() + 60 * 60 * 1000)
         })
         .where(eq(monitoringTasks.id, task.id));
     } catch (error) {
@@ -94,9 +69,6 @@ async function processPendingTasks() {
   }
 }
 
-/**
- * Мониторинг туров для профиля пользователя
- */
 export async function monitorProfileTours(userId: string, profileId: number) {
   const [profile] = await db.select()
     .from(profiles)
@@ -107,33 +79,40 @@ export async function monitorProfileTours(userId: string, profileId: number) {
 
   logger.info(`Monitoring tours for user ${profile.userId}`);
 
-  // Поиск туров по параметрам профиля
-  const searchParams = {
-    countries: profile.countries as string[],
+  const countries = (profile.countries as string[]) || [];
+  const searchParams: any = {
+    destination: countries[0] || 'Любая',
+    countries,
     budget: profile.budget || undefined,
-    startDate: profile.startDate || undefined,
-    endDate: profile.endDate || undefined,
+    startDate: profile.startDate ? new Date(profile.startDate as any) : undefined,
+    endDate: profile.endDate ? new Date(profile.endDate as any) : undefined,
     duration: profile.tripDuration || undefined,
-    peopleCount: profile.peopleCount || 2
+    peopleCount: (profile as any).peopleCount || 2,
   };
 
   const foundTours = await searchTours(searchParams);
-  
-  // Анализируем каждый тур
+
   for (const tourData of foundTours) {
     const { score, details, analysis } = await calculateTourMatchScore(
       tourData,
-      searchParams,
-      profile.priorities as Record<string, number> || {}
+      {
+        countries,
+        budget: searchParams.budget,
+        startDate: searchParams.startDate,
+        endDate: searchParams.endDate,
+        duration: searchParams.duration,
+        peopleCount: searchParams.peopleCount,
+      } as any,
+      (profile.priorities as Record<string, number>) || {}
     );
 
-    // Сохраняем тур в БД если еще нет
+    const extId = ((tourData as any).externalId || (tourData as any).id || '').toString();
     let [existingTour] = await db.select()
       .from(tours)
       .where(
         and(
           eq(tours.provider, tourData.provider),
-          eq(tours.externalId, tourData.id)
+          eq(tours.externalId, extId)
         )
       )
       .limit(1);
@@ -141,31 +120,30 @@ export async function monitorProfileTours(userId: string, profileId: number) {
     if (!existingTour) {
       [existingTour] = await db.insert(tours)
         .values({
-          provider: tourData.provider,
           providerId: tourData.provider,
-          externalId: tourData.id,
+          provider: tourData.provider,
+          externalId: extId,
           title: tourData.title,
-          country: tourData.country,
-          resort: tourData.resort,
-          hotelName: tourData.hotelName,
-          starRating: tourData.stars,
-          beachLine: tourData.beachLine,
-          mealType: tourData.mealType,
+          country: (tourData as any).country || undefined,
+          resort: (tourData as any).resort || undefined,
+          hotelName: (tourData as any).hotel || undefined,
+          starRating: (tourData as any).hotelStars || undefined,
+          beachLine: (tourData as any).beachLine || undefined,
+          mealType: (tourData as any).mealType || undefined,
           price: tourData.price,
-          departureDate: tourData.startDate,
-          returnDate: tourData.endDate,
-          duration: tourData.nights,
-          hotelRating: tourData.rating,
-          photoUrl: tourData.photoUrl,
-          detailsUrl: tourData.link,
-          bookingUrl: tourData.link,
+          departureDate: (tourData as any).startDate || undefined,
+          returnDate: (tourData as any).endDate || undefined,
+          duration: (tourData as any).nights || undefined,
+          hotelRating: (tourData as any).rating || undefined,
+          photoUrl: (tourData as any).image || undefined,
+          detailsUrl: (tourData as any).detailsUrl || (tourData as any).link || undefined,
+          bookingUrl: (tourData as any).link || undefined,
           matchScore: score,
           aiAnalysis: analysis
         })
         .returning();
     }
 
-    // Проверяем, уведомляли ли уже о этом туре
     const [existingMatch] = await db.select()
       .from(tourMatches)
       .where(
@@ -177,7 +155,6 @@ export async function monitorProfileTours(userId: string, profileId: number) {
       .limit(1);
 
     if (!existingMatch && score >= NOTIFICATION_THRESHOLD) {
-      // Сохраняем соответствие
       await db.insert(tourMatches)
         .values({
           tourId: existingTour.id,
@@ -187,38 +164,29 @@ export async function monitorProfileTours(userId: string, profileId: number) {
           matchDetails: details
         });
 
-      // Отправляем уведомление
       await sendTourNotification(profile.userId, existingTour, score, analysis);
     }
   }
 }
 
-/**
- * Проверка дедлайнов и предложение альтернатив
- */
 export async function checkDeadline(userId: string, profileId: number) {
   const [profile] = await db.select()
     .from(profiles)
     .where(eq(profiles.id, profileId))
     .limit(1);
 
-  if (!profile || !profile.deadline) return;
+  if (!profile || !(profile as any).deadline) return;
 
   const now = new Date();
-  if (now > profile.deadline) {
+  const deadline = new Date((profile as any).deadline as any);
+  if (now > deadline) {
     logger.info(`Deadline reached for user ${profile.userId}, suggesting alternatives`);
 
-    // Получаем приоритеты пользователя
-    const priorities = profile.priorities as Record<string, number> || {};
-    
-    // Определяем, какие параметры можно ослабить в порядке важности
-    const sortedPriorities = Object.entries(priorities)
-      .sort(([, a], [, b]) => a - b); // Сортируем по возрастанию важности
+    const priorities = (profile.priorities as Record<string, number>) || {};
+    const sortedPriorities = Object.entries(priorities).sort(([, a], [, b]) => a - b);
 
-    // Создаем альтернативные параметры поиска
-    const alternatives = [];
+    const alternatives: any[] = [];
 
-    // 1. Увеличиваем бюджет на 20%
     if (profile.budget) {
       alternatives.push({
         ...profile,
@@ -227,21 +195,20 @@ export async function checkDeadline(userId: string, profileId: number) {
       });
     }
 
-    // 2. Расширяем даты на ±7 дней
     if (profile.startDate && profile.endDate) {
+      const start = new Date(profile.startDate as any).getTime();
+      const end = new Date(profile.endDate as any).getTime();
       alternatives.push({
         ...profile,
-        startDate: new Date(profile.startDate.getTime() - 7 * 24 * 60 * 60 * 1000),
-        endDate: new Date(profile.endDate.getTime() + 7 * 24 * 60 * 60 * 1000),
+        startDate: new Date(start - 7 * 24 * 60 * 60 * 1000),
+        endDate: new Date(end + 7 * 24 * 60 * 60 * 1000),
         alternativeType: 'flexible_dates'
       });
     }
 
-    // 3. Добавляем альтернативные страны
     const alternativeCountries = ['Турция', 'Египет', 'ОАЭ', 'Таиланд'];
-    const currentCountries = profile.countries as string[] || [];
+    const currentCountries = (profile.countries as string[]) || [];
     const newCountries = alternativeCountries.filter(c => !currentCountries.includes(c));
-    
     if (newCountries.length > 0) {
       alternatives.push({
         ...profile,
@@ -250,19 +217,19 @@ export async function checkDeadline(userId: string, profileId: number) {
       });
     }
 
-    // Отправляем уведомление о дедлайне с альтернативами
     await sendDeadlineNotification(profile.userId, alternatives);
 
-    // Деактивируем задачу
     await db.update(monitoringTasks)
       .set({ status: 'completed' })
-      .where(eq(monitoringTasks.id, task.id));
+      .where(
+        and(
+          eq(monitoringTasks.profileId, profile.id),
+          eq(monitoringTasks.taskType, 'deadline_check' as any)
+        )
+      );
   }
 }
 
-/**
- * Мониторинг туров для группы
- */
 export async function monitorGroupTours(groupId: number) {
   const [group] = await db.select()
     .from(groupProfiles)
@@ -276,54 +243,55 @@ export async function monitorGroupTours(groupId: number) {
 
   logger.info(`Monitoring tours for group ${group.chatId}`);
 
-  // Поиск туров по агрегированным параметрам
-  const searchParams = {
-    countries: aggregatedProfile.countries,
+  const countries = aggregatedProfile.countries || [];
+  const searchParams: any = {
+    destination: countries[0] || 'Любая',
+    countries,
     budget: aggregatedProfile.budget,
-    startDate: aggregatedProfile.startDate,
-    endDate: aggregatedProfile.endDate,
+    startDate: aggregatedProfile.startDate ? new Date(aggregatedProfile.startDate) : undefined,
+    endDate: aggregatedProfile.endDate ? new Date(aggregatedProfile.endDate) : undefined,
     duration: aggregatedProfile.tripDuration,
     peopleCount: (group.memberIds as string[]).length * 2
   };
 
   const foundTours = await searchTours(searchParams);
 
-  // Анализируем и сохраняем лучшие туры для группы
-  const topTours = [];
+  const topTours: Array<{ tourData: any; score: number; analysis: string }> = [];
   for (const tourData of foundTours) {
     const { score, details, analysis } = await calculateTourMatchScore(
       tourData,
-      searchParams,
-      group.aggregatedPriorities as Record<string, number> || {}
+      {
+        countries,
+        budget: searchParams.budget,
+        startDate: searchParams.startDate,
+        endDate: searchParams.endDate,
+        duration: searchParams.duration,
+        peopleCount: searchParams.peopleCount,
+      } as any,
+      (group.aggregatedPriorities as Record<string, number>) || {}
     );
 
-    if (score >= NOTIFICATION_THRESHOLD - 10) { // Немного ниже порог для групп
+    if (score >= NOTIFICATION_THRESHOLD - 10) {
       topTours.push({ tourData, score, analysis });
     }
   }
 
-  // Сортируем по соответствию
   topTours.sort((a, b) => b.score - a.score);
 
-  // Отправляем топ-3 тура в группу для голосования
   if (topTours.length > 0) {
     await sendGroupTourOptions(group.chatId, topTours.slice(0, 3));
   }
 }
 
-/**
- * Отправка уведомления о найденном туре
- */
 async function sendTourNotification(userId: string, tour: any, score: number, analysis: string) {
   const bot = getBot();
-  
   const message = `🎯 Найден отличный тур для вас!\n\n` +
     `${tour.title}\n` +
-    `⭐ ${tour.starRating} звезд${tour.beachLine ? `, ${tour.beachLine} линия` : ''}\n` +
-    `🍽 ${tour.mealType}\n` +
+    `⭐ ${tour.starRating || ''} звезд${tour.beachLine ? `, ${tour.beachLine} линия` : ''}\n` +
+    `🍽 ${tour.mealType || ''}\n` +
     `💰 ${tour.price.toLocaleString('ru-RU')} ₽\n` +
     `📅 ${tour.departureDate ? new Date(tour.departureDate).toLocaleDateString('ru-RU') : 'Гибкие даты'}\n` +
-    `✈️ ${tour.duration} ночей\n\n` +
+    `✈️ ${tour.duration || ''} ночей\n\n` +
     `📊 Соответствие вашим критериям: ${score}%\n` +
     `💡 ${analysis}`;
 
@@ -340,27 +308,22 @@ async function sendTourNotification(userId: string, tour: any, score: number, an
   };
 
   try {
-    await bot.sendPhoto(userId, tour.photoUrl || 'https://via.placeholder.com/400x300', {
+    await (bot as any).sendPhoto(userId as any, tour.photoUrl || 'https://via.placeholder.com/400x300', {
       caption: message,
       reply_markup: keyboard
     });
   } catch (error) {
-    // Если не удалось отправить фото, отправляем текст
-    await bot.sendMessage(userId, message, { reply_markup: keyboard });
+    await (bot as any).sendMessage(userId as any, message, { reply_markup: keyboard });
   }
 }
 
-/**
- * Отправка уведомления о дедлайне с альтернативами
- */
 async function sendDeadlineNotification(userId: string, alternatives: any[]) {
   const bot = getBot();
-  
   let message = `⏰ Достигнут дедлайн поиска туров!\n\n` +
     `К сожалению, не удалось найти туры, полностью соответствующие вашим критериям. ` +
     `Вот несколько альтернативных вариантов:\n\n`;
 
-  const buttons = [];
+  const buttons: any[] = [];
 
   for (const alt of alternatives) {
     switch (alt.alternativeType) {
@@ -386,24 +349,19 @@ async function sendDeadlineNotification(userId: string, alternatives: any[]) {
       buttons,
       [{ text: '🔄 Новый поиск', callback_data: 'new_search' }]
     ]
-  };
+  } as any;
 
-  await bot.sendMessage(userId, message, { reply_markup: keyboard });
+  await (bot as any).sendMessage(userId as any, message, { reply_markup: keyboard });
 }
 
-/**
- * Отправка вариантов туров для голосования в группе
- */
 async function sendGroupTourOptions(chatId: string, tours: any[]) {
   const bot = getBot();
-  
   const message = `🗳 Найдены туры для вашей группы! Голосуйте за понравившиеся варианты:\n\n`;
 
   for (let i = 0; i < tours.length; i++) {
-    const { tourData, score, analysis } = tours[i];
-    
+    const { tourData, score } = tours[i];
     const tourMessage = `${i + 1}. ${tourData.title}\n` +
-      `⭐ ${tourData.stars} звезд, 💰 ${tourData.price.toLocaleString('ru-RU')} ₽\n` +
+      `⭐ ${(tourData as any).hotelStars || ''} звезд, 💰 ${tourData.price.toLocaleString('ru-RU')} ₽\n` +
       `📊 Соответствие: ${score}%\n`;
 
     const keyboard = {
@@ -414,11 +372,11 @@ async function sendGroupTourOptions(chatId: string, tours: any[]) {
           { text: '🤔', callback_data: `vote_maybe_${tourData.id}` }
         ],
         [
-          { text: '🔗 Подробнее', url: tourData.link }
+          { text: '🔗 Подробнее', url: (tourData as any).link }
         ]
       ]
-    };
+    } as any;
 
-    await bot.sendMessage(chatId, tourMessage, { reply_markup: keyboard });
+    await (bot as any).sendMessage(chatId as any, tourMessage, { reply_markup: keyboard });
   }
 }
