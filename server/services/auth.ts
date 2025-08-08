@@ -63,17 +63,25 @@ export async function generateTokens(payload: Omit<JWTPayload, 'type'>): Promise
     type: 'refresh'
   };
 
-  const accessToken = jwt.sign(accessPayload, JWT_CONFIG.ACCESS_TOKEN_SECRET, {
-    expiresIn: JWT_CONFIG.ACCESS_TOKEN_EXPIRY,
-    issuer: JWT_CONFIG.ISSUER,
-    audience: JWT_CONFIG.AUDIENCE
-  });
+  const accessToken = jwt.sign(
+    accessPayload,
+    JWT_CONFIG.ACCESS_TOKEN_SECRET as jwt.Secret,
+    {
+      expiresIn: JWT_CONFIG.ACCESS_TOKEN_EXPIRY as any,
+      issuer: JWT_CONFIG.ISSUER,
+      audience: JWT_CONFIG.AUDIENCE,
+    } as jwt.SignOptions
+  );
 
-  const refreshToken = jwt.sign(refreshPayload, JWT_CONFIG.REFRESH_TOKEN_SECRET, {
-    expiresIn: JWT_CONFIG.REFRESH_TOKEN_EXPIRY,
-    issuer: JWT_CONFIG.ISSUER,
-    audience: JWT_CONFIG.AUDIENCE
-  });
+  const refreshToken = jwt.sign(
+    refreshPayload,
+    JWT_CONFIG.REFRESH_TOKEN_SECRET as jwt.Secret,
+    {
+      expiresIn: JWT_CONFIG.REFRESH_TOKEN_EXPIRY as any,
+      issuer: JWT_CONFIG.ISSUER,
+      audience: JWT_CONFIG.AUDIENCE,
+    } as jwt.SignOptions
+  );
 
   // Сохраняем refresh token в кеше для возможности инвалидации
   const refreshCacheKey = `refresh_token:${payload.userId}`;
@@ -273,7 +281,6 @@ export async function generateTelegramWebAppToken(initData: string): Promise<{
     // Создаем новый профиль
     await db.insert(profiles).values({
       userId,
-      telegramUsername: userData.username,
       name: userData.first_name
     });
   }

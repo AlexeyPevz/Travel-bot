@@ -38,6 +38,7 @@ describe('POST /api/v1/tours/search', () => {
       .send({ countries: 'Турция' })
       .expect(400);
 
-    expect(res.body?.error?.message || '').toMatch(/Validation/i);
+    expect(res.body.error).toBe('Validation Error');
+    expect(res.body.details?.message || '').toMatch(/Validation failed/i);
   });
 });
