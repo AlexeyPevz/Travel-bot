@@ -253,10 +253,15 @@ export async function checkDeadline(userId: string, profileId: number) {
     // Отправляем уведомление о дедлайне с альтернативами
     await sendDeadlineNotification(profile.userId, alternatives);
 
-    // Деактивируем задачу
+    // Деактивируем задачи-дедлайны для этого профиля
     await db.update(monitoringTasks)
       .set({ status: 'completed' })
-      .where(eq(monitoringTasks.id, task.id));
+      .where(
+        and(
+          eq(monitoringTasks.profileId, profile.id),
+          eq(monitoringTasks.taskType, 'deadline_check' as any)
+        )
+      );
   }
 }
 
