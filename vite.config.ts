@@ -1,38 +1,31 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import path from "path";
-import runtimeErrorOverlay from "@replit/vite-plugin-runtime-error-modal";
 import { visualizer } from "rollup-plugin-visualizer";
 import compression from "vite-plugin-compression";
 
 export default defineConfig({
   plugins: [
     react(),
-    runtimeErrorOverlay(),
     // Compression plugins for production
-    ...(process.env.NODE_ENV === "production" ? [
-      compression({
-        algorithm: 'gzip',
-        ext: '.gz',
-      }),
-      compression({
-        algorithm: 'brotliCompress',
-        ext: '.br',
-      }),
-    ] : []),
-    // Bundle analyzer
-    process.env.ANALYZE && visualizer({
-      open: true,
-      filename: 'dist/stats.html',
-    }),
-    ...(process.env.NODE_ENV !== "production" &&
-    process.env.REPL_ID !== undefined
+    ...(process.env.NODE_ENV === "production"
       ? [
-          await import("@replit/vite-plugin-cartographer").then((m) =>
-            m.cartographer(),
-          ),
+          compression({
+            algorithm: "gzip",
+            ext: ".gz",
+          }),
+          compression({
+            algorithm: "brotliCompress",
+            ext: ".br",
+          }),
         ]
       : []),
+    // Bundle analyzer
+    process.env.ANALYZE &&
+      visualizer({
+        open: true,
+        filename: "dist/stats.html",
+      }),
   ].filter(Boolean),
   resolve: {
     alias: {
@@ -51,42 +44,42 @@ export default defineConfig({
       output: {
         manualChunks: (id) => {
           // Vendor chunks
-          if (id.includes('node_modules')) {
-            if (id.includes('react') || id.includes('react-dom')) {
-              return 'react-vendor';
+          if (id.includes("node_modules")) {
+            if (id.includes("react") || id.includes("react-dom")) {
+              return "react-vendor";
             }
-            if (id.includes('@tanstack')) {
-              return 'query-vendor';
+            if (id.includes("@tanstack")) {
+              return "query-vendor";
             }
-            if (id.includes('wouter')) {
-              return 'router-vendor';
+            if (id.includes("wouter")) {
+              return "router-vendor";
             }
-            return 'vendor';
+            return "vendor";
           }
         },
         // Optimize chunk names
-        chunkFileNames: 'assets/js/[name]-[hash].js',
-        entryFileNames: 'assets/js/[name]-[hash].js',
-        assetFileNames: 'assets/[ext]/[name]-[hash].[ext]',
+        chunkFileNames: "assets/js/[name]-[hash].js",
+        entryFileNames: "assets/js/[name]-[hash].js",
+        assetFileNames: "assets/[ext]/[name]-[hash].[ext]",
       },
     },
     // Optimize chunk size
     chunkSizeWarningLimit: 1000,
     // Enable minification
-    minify: 'terser',
+    minify: "terser",
     terserOptions: {
       compress: {
-        drop_console: process.env.NODE_ENV === 'production',
+        drop_console: process.env.NODE_ENV === "production",
         drop_debugger: true,
       },
     },
     // Enable CSS code splitting
     cssCodeSplit: true,
     // Source maps for debugging
-    sourcemap: process.env.NODE_ENV !== 'production',
+    sourcemap: process.env.NODE_ENV !== "production",
   },
   // Optimize dependencies
   optimizeDeps: {
-    include: ['react', 'react-dom', '@tanstack/react-query', 'wouter'],
+    include: ["react", "react-dom", "@tanstack/react-query", "wouter"],
   },
 });

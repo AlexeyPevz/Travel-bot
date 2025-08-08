@@ -217,7 +217,7 @@ export function decodeToken(token: string): DecodedToken | null {
 /**
  * Проверяет существование пользователя в БД
  */
-async function checkUserExists(userId: string): Promise<boolean> {
+export async function checkUserExists(userId: string): Promise<boolean> {
   const [user] = await db.select({ id: profiles.id })
     .from(profiles)
     .where(eq(profiles.userId, userId))
@@ -229,7 +229,7 @@ async function checkUserExists(userId: string): Promise<boolean> {
 /**
  * Конвертирует время жизни токена в секунды
  */
-function getTokenExpirySeconds(expiry: string): number {
+export function getTokenExpirySeconds(expiry: string): number {
   const match = expiry.match(/^(\d+)([smhd])$/);
   if (!match) {
     return 900; // 15 минут по умолчанию

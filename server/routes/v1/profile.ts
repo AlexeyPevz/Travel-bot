@@ -37,7 +37,9 @@ const router = Router();
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-router.get('/:userId', asyncHandler(async (req, res) => {
+import { requireAuth, authorizeOwner } from '../../middleware/auth';
+
+router.get('/:userId', requireAuth, authorizeOwner('userId'), asyncHandler(async (req, res) => {
   const logger = createRequestLogger();
   const { userId } = req.params;
   
@@ -98,7 +100,7 @@ router.get('/:userId', asyncHandler(async (req, res) => {
  *                 profile:
  *                   $ref: '#/components/schemas/Profile'
  */
-router.post('/', validateBody(updateProfileSchema), asyncHandler(async (req, res) => {
+router.post('/', requireAuth, authorizeOwner('userId'), validateBody(updateProfileSchema), asyncHandler(async (req, res) => {
   const logger = createRequestLogger();
   const profileData = req.body;
   
@@ -135,7 +137,7 @@ router.post('/', validateBody(updateProfileSchema), asyncHandler(async (req, res
 }));
 
 // Update profile
-router.put('/:userId', validateBody(updateProfileSchema), asyncHandler(async (req, res) => {
+router.put('/:userId', requireAuth, authorizeOwner('userId'), validateBody(updateProfileSchema), asyncHandler(async (req, res) => {
   const logger = createRequestLogger();
   const { userId } = req.params;
   const updates = req.body;
@@ -164,7 +166,7 @@ router.put('/:userId', validateBody(updateProfileSchema), asyncHandler(async (re
 }));
 
 // Delete profile
-router.delete('/:userId', asyncHandler(async (req, res) => {
+router.delete('/:userId', requireAuth, authorizeOwner('userId'), asyncHandler(async (req, res) => {
   const logger = createRequestLogger();
   const { userId } = req.params;
   

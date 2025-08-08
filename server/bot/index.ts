@@ -68,8 +68,6 @@ export async function startBot(server: Server): Promise<TelegramBot> {
     // POST /api/telegram/command/:command
     // Например: POST /api/telegram/command/help
     
-    return bot;
-
     // Объединяем в один подход для всех команд
     const commandHandlers = {
       'start': async (msg: TelegramBot.Message, match?: RegExpExecArray | null) => {
