@@ -203,10 +203,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
             vacationType: preferences.vacationType,
             countries: preferences.countries,
             budget: preferences.budget,
-            startDate: preferences.startDate,
-            endDate: preferences.endDate,
+            startDate: preferences.startDate ? preferences.startDate.toISOString().split('T')[0] : null,
+            endDate: preferences.endDate ? preferences.endDate.toISOString().split('T')[0] : null,
             tripDuration: preferences.duration,
-            peopleCount: preferences.peopleCount,
+            adults: preferences.peopleCount || 2,
+            children: 0,
             priorities: preferences.priorities,
             updatedAt: new Date()
           })
@@ -242,7 +243,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             startDate: profile.startDate || undefined,
             endDate: profile.endDate || undefined,
             duration: profile.tripDuration || undefined,
-            peopleCount: profile.peopleCount || 2
+            peopleCount: profile.adults || 2
           };
         }
       } else {
@@ -406,7 +407,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/tours/search", async (req: express.Request, res: express.Response) => {
+  app.post("/api/tours/search", async (req: Request, res: Response) => {
     const { 
       destination, 
       startDate, 
@@ -447,7 +448,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       };
 
       // Получаем туры от всех провайдеров
-      const tours = await fetchToursFromAllProviders(searchParams, searchId);
+      const tours = await fetchToursFromAllProviders(searchParams);
       
       // Импортируем сервис дедупликации
       const { hotelDeduplicationService } = await import('./services/hotelDeduplication');

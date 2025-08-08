@@ -52,7 +52,6 @@ describe('Authentication Flow', () => {
       await db.insert(profiles).values({
         userId: testUserId,
         name: 'Existing User',
-        telegramUsername: 'existinguser',
       });
 
       const telegramData = generateTelegramAuthData({

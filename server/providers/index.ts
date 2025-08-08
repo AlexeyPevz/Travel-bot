@@ -11,11 +11,12 @@ export interface TourProvider {
 // Tour search parameters
 export interface TourSearchParams {
   destination: string;
-  dateType: 'fixed' | 'flexible';
+  dateType?: 'fixed' | 'flexible';
   startDate?: Date;
   endDate?: Date;
   flexibleMonth?: string;
   tripDuration?: number;
+  nights?: number;
   budget?: number;
   priorities?: {
     hotelStars?: number;

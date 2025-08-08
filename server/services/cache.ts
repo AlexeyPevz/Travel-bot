@@ -207,4 +207,6 @@ export async function cleanupCache() {
 // Запускаем очистку кэша каждые 24 часа
 setInterval(cleanupCache, 24 * 60 * 60 * 1000);
 
-export default redis;
+export { cacheKeys as CACHE_KEYS, cacheTTL as CACHE_TTL };
+export { cacheService, redis };
+export default cacheService;

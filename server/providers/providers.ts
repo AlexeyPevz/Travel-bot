@@ -1,0 +1,1 @@
+export { fetchToursFromAllProviders } from './index';
