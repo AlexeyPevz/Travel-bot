@@ -1,0 +1,307 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database - Production Configuration
+  postgres:
+    image: postgres:16-alpine
+    restart: always
+    environment:
+      POSTGRES_USER_FILE: /run/secrets/db_user
+      POSTGRES_PASSWORD_FILE: /run/secrets/db_password
+      POSTGRES_DB: ${DB_NAME:-travel_prod}
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --lc-collate=C --lc-ctype=C"
+    secrets:
+      - db_user
+      - db_password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/db-backup.sh:/usr/local/bin/backup.sh:ro
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$(cat /run/secrets/db_user)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '1'
+          memory: 1G
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
+        labels: "service=postgres"
+
+  # Redis Cache - Production Configuration
+  redis:
+    image: redis:7-alpine
+    restart: always
+    command: >
+      redis-server
+      --requirepass $${REDIS_PASSWORD}
+      --maxmemory 512mb
+      --maxmemory-policy allkeys-lru
+      --appendonly yes
+      --appendfsync everysec
+    environment:
+      REDIS_PASSWORD_FILE: /run/secrets/redis_password
+    secrets:
+      - redis_password
+    volumes:
+      - redis_data:/data
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD", "redis-cli", "--no-auth-warning", "-a", "$$(cat /run/secrets/redis_password)", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+        labels: "service=redis"
+
+  # Application - Production Configuration
+  app:
+    image: ${DOCKER_REGISTRY:-}ai-travel-agent:${VERSION:-latest}
+    restart: always
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://$${DB_USER}:$${DB_PASSWORD}@postgres:5432/${DB_NAME:-travel_prod}?sslmode=require
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      APP_URL: ${APP_URL}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      # Secrets will be loaded from files
+      JWT_ACCESS_SECRET_FILE: /run/secrets/jwt_access_secret
+      JWT_REFRESH_SECRET_FILE: /run/secrets/jwt_refresh_secret
+      CSRF_SECRET_FILE: /run/secrets/csrf_secret
+      COOKIE_SECRET_FILE: /run/secrets/cookie_secret
+      SESSION_SECRET_FILE: /run/secrets/session_secret
+      TELEGRAM_TOKEN_FILE: /run/secrets/telegram_token
+      OPENROUTER_API_KEY_FILE: /run/secrets/openrouter_api_key
+      LEVELTRAVEL_API_KEY_FILE: /run/secrets/leveltravel_api_key
+      REDIS_PASSWORD_FILE: /run/secrets/redis_password
+      # Non-secret configurations
+      JWT_ACCESS_EXPIRY: ${JWT_ACCESS_EXPIRY:-15m}
+      JWT_REFRESH_EXPIRY: ${JWT_REFRESH_EXPIRY:-7d}
+      JWT_ISSUER: ${JWT_ISSUER:-ai-travel-agent-prod}
+      JWT_AUDIENCE: ${JWT_AUDIENCE:-ai-travel-agent-api-prod}
+      LEVEL_TRAVEL_PARTNER: ${LEVEL_TRAVEL_PARTNER}
+      LEVEL_TRAVEL_MARKER: ${LEVEL_TRAVEL_MARKER}
+      LEVEL_TRAVEL_AFFILIATE_URL: ${LEVEL_TRAVEL_AFFILIATE_URL}
+      # Monitoring
+      PROMETHEUS_METRICS_PORT: 9090
+      SENTRY_DSN: ${SENTRY_DSN:-}
+    secrets:
+      - db_user
+      - db_password
+      - jwt_access_secret
+      - jwt_refresh_secret
+      - csrf_secret
+      - cookie_secret
+      - session_secret
+      - telegram_token
+      - openrouter_api_key
+      - leveltravel_api_key
+      - redis_password
+    networks:
+      - frontend
+      - backend
+    deploy:
+      replicas: ${APP_REPLICAS:-2}
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '1'
+          memory: 1G
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+        window: 120s
+      update_config:
+        parallelism: 1
+        delay: 10s
+        failure_action: rollback
+        monitor: 30s
+        max_failure_ratio: 0.3
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:5000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "10"
+        labels: "service=app"
+
+  # Nginx Reverse Proxy
+  nginx:
+    image: nginx:alpine
+    restart: always
+    depends_on:
+      - app
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.production.conf:/etc/nginx/nginx.conf:ro
+      - ./ssl:/etc/nginx/ssl:ro
+      - nginx_cache:/var/cache/nginx
+    networks:
+      - frontend
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+        reservations:
+          cpus: '0.5'
+          memory: 256M
+    healthcheck:
+      test: ["CMD", "nginx", "-t"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
+        labels: "service=nginx"
+
+  # Backup service
+  backup:
+    image: postgres:16-alpine
+    restart: always
+    depends_on:
+      - postgres
+    environment:
+      PGPASSWORD_FILE: /run/secrets/db_password
+      BACKUP_SCHEDULE: ${BACKUP_SCHEDULE:-0 2 * * *}
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-7}
+      S3_BUCKET: ${BACKUP_S3_BUCKET:-}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY_FILE: /run/secrets/aws_secret_key
+    secrets:
+      - db_user
+      - db_password
+      - aws_secret_key
+    volumes:
+      - ./scripts/backup-cron.sh:/usr/local/bin/backup-cron.sh:ro
+      - backups:/backups
+    networks:
+      - backend
+    command: ["crond", "-f", "-l", "2"]
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+        labels: "service=backup"
+
+networks:
+  frontend:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/24
+  backend:
+    driver: bridge
+    internal: true
+    ipam:
+      config:
+        - subnet: 172.21.0.0/24
+
+volumes:
+  postgres_data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${DATA_PATH:-/var/lib/ai-travel-agent}/postgres
+  redis_data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${DATA_PATH:-/var/lib/ai-travel-agent}/redis
+  nginx_cache:
+    driver: local
+  backups:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${BACKUP_PATH:-/var/backups/ai-travel-agent}
+
+secrets:
+  db_user:
+    external: true
+    name: ai_travel_agent_db_user
+  db_password:
+    external: true
+    name: ai_travel_agent_db_password
+  jwt_access_secret:
+    external: true
+    name: ai_travel_agent_jwt_access_secret
+  jwt_refresh_secret:
+    external: true
+    name: ai_travel_agent_jwt_refresh_secret
+  csrf_secret:
+    external: true
+    name: ai_travel_agent_csrf_secret
+  cookie_secret:
+    external: true
+    name: ai_travel_agent_cookie_secret
+  session_secret:
+    external: true
+    name: ai_travel_agent_session_secret
+  telegram_token:
+    external: true
+    name: ai_travel_agent_telegram_token
+  openrouter_api_key:
+    external: true
+    name: ai_travel_agent_openrouter_api_key
+  leveltravel_api_key:
+    external: true
+    name: ai_travel_agent_leveltravel_api_key
+  redis_password:
+    external: true
+    name: ai_travel_agent_redis_password
+  aws_secret_key:
+    external: true
+    name: ai_travel_agent_aws_secret_key

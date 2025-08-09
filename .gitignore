@@ -24,6 +24,22 @@ yarn-error.log*
 .env.development.local
 .env.test.local
 .env.production.local
+.env.staging
+.env.development
+.env.production
+.env.*
+!.env.example
+!.env.*.example
+
+# Secrets and security
+secrets/
+*.key
+*.pem
+*.crt
+*.p12
+vault-token
+.vault-token
+.envrc
 
 # IDE
 .vscode/
