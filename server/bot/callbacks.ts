@@ -11,6 +11,8 @@ import {
 import { handleOnboardingStep, handleSkipPreferences, handleVacationTypeCallback } from './commands/onboarding';
 import { MESSAGES } from './messages/templates';
 import logger from '../utils/logger';
+import { eq } from 'drizzle-orm';
+import { groupProfiles, searchTours } from '../db/schema';
 
 export async function handleCallbackQuery(
   bot: TelegramBot,
@@ -77,6 +79,39 @@ export async function handleCallbackQuery(
           MESSAGES.search.searching
         );
         // TODO: Implement tour search
+        
+        // Запускаем поиск туров для группы
+        const groupProfile = await db.select()
+          .from(groupProfiles)
+          .where(eq(groupProfiles.chatId, chatId.toString()))
+          .limit(1);
+          
+        if (groupProfile[0]) {
+          const searchParams = {
+            countries: groupProfile[0].countries || [],
+            budget: groupProfile[0].budget || 100000,
+            startDate: groupProfile[0].startDate || new Date(),
+            endDate: groupProfile[0].endDate || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+            duration: groupProfile[0].tripDuration || 7,
+            adults: groupProfile[0].adults || 2,
+            children: groupProfile[0].children || 0
+          };
+          
+          // Выполняем поиск туров
+          const tours = await searchTours(searchParams);
+          
+          if (tours.length > 0) {
+            await bot.sendMessage(chatId, 
+              `🔍 Найдено ${tours.length} туров по вашим параметрам!\n\n` +
+              `Используйте команду /tours для просмотра результатов.`
+            );
+          } else {
+            await bot.sendMessage(chatId, 
+              '😔 К сожалению, туры по заданным параметрам не найдены.\n' +
+              'Попробуйте изменить критерии поиска.'
+            );
+          }
+        }
       }
       
       await bot.answerCallbackQuery(callbackQuery.id);
@@ -155,19 +190,78 @@ async function handleGroupCallbacks(
 
     // group_tour_1_123 (показать конкретный тур)
     if (data.match(/^group_tour_\d+_\d+$/)) {
-      // TODO: Показать детали тура
+      const [, , tourId, groupId] = data.split('_');
+      const chatId = callbackQuery.message?.chat.id;
+      
+      if (!chatId) return;
+      
+      // Получаем информацию о туре
+      const tour = await db.select()
+        .from(tours)
+        .where(eq(tours.id, parseInt(tourId)))
+        .limit(1);
+        
+      if (tour[0]) {
+        const tourData = tour[0];
+        const message = `🏖 **${tourData.hotelName || 'Отель'}**\n` +
+          `📍 ${tourData.country}, ${tourData.region || ''}\n` +
+          `⭐ ${tourData.starRating || 0} звезд\n` +
+          `🍽 ${tourData.mealType || 'Не указано'}\n` +
+          `📅 ${tourData.nights} ночей\n` +
+          `💰 ${tourData.price?.toLocaleString('ru-RU')} ₽\n\n` +
+          `🔗 [Подробнее](${tourData.link})`;
+          
+        await bot.sendMessage(chatId, message, {
+          parse_mode: 'Markdown',
+          reply_markup: {
+            inline_keyboard: [[
+              { text: '👍 Голосовать', callback_data: `vote_${tourId}_${groupId}` },
+              { text: '🔗 Открыть на сайте', url: tourData.link || '' }
+            ]]
+          }
+        });
+      }
+      
       await bot.answerCallbackQuery(callbackQuery.id, { 
-        text: 'Показ деталей тура будет добавлен' 
+        text: 'Детали тура загружены' 
       });
       return;
     }
 
     // group_members_123 (показать список участников)
     if (data.startsWith('group_members_')) {
-      // TODO: Показать список участников
-      await bot.answerCallbackQuery(callbackQuery.id, { 
-        text: 'Список участников будет добавлен' 
-      });
+      const groupId = data.replace('group_members_', '');
+      const chatId = callbackQuery.message?.chat.id;
+      
+      if (!chatId) return;
+      
+      // Получаем список участников группы
+      const group = await db.select()
+        .from(groupProfiles)
+        .where(eq(groupProfiles.id, parseInt(groupId)))
+        .limit(1);
+        
+      if (group[0] && group[0].memberUserIds) {
+        const memberIds = group[0].memberUserIds as string[];
+        const memberNames = group[0].memberNames as string[] || [];
+        
+        let message = `👥 **Участники группы "${group[0].chatTitle || 'Группа'}":**\n\n`;
+        
+        memberIds.forEach((userId, index) => {
+          const name = memberNames[index] || `Пользователь ${userId}`;
+          message += `${index + 1}. ${name}\n`;
+        });
+        
+        message += `\nВсего участников: ${memberIds.length}`;
+        
+        await bot.sendMessage(chatId, message, {
+          parse_mode: 'Markdown'
+        });
+      } else {
+        await bot.sendMessage(chatId, '😔 Информация о группе не найдена');
+      }
+      
+      await bot.answerCallbackQuery(callbackQuery.id);
       return;
     }
 
