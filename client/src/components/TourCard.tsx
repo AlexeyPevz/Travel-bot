@@ -1,200 +1,252 @@
 import React from 'react';
-import { Card, CardContent } from '@/components/ui/card';
+import { motion } from 'framer-motion';
+import { Star, MapPin, Calendar, Users, Utensils, Heart } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Tour } from '@shared/schema';
-import { MapPin, Star, Calendar, Utensils, Heart, ThumbsUp } from 'lucide-react';
-import { apiRequest } from '@/lib/queryClient';
-import { useToast } from '@/hooks/use-toast';
-import { getTelegramUser } from '@/lib/telegramWebApp';
+import { Badge } from '@/components/ui/badge';
+import { cn } from '@/lib/utils';
 
 interface TourCardProps {
-  tour: Tour;
-  onSelect: () => void;
+  tour: {
+    id: number;
+    hotelName: string;
+    country: string;
+    region?: string;
+    starRating: number;
+    mealType: string;
+    price: number;
+    nights: number;
+    beachLine?: number;
+    roomType?: string;
+    tourOperator?: string;
+    link?: string;
+    imageUrl?: string;
+    matchScore?: number;
+  };
+  onVote?: () => void;
+  onBook?: () => void;
+  isFavorite?: boolean;
+  onToggleFavorite?: () => void;
+  index?: number;
 }
 
-const TourCard = ({ tour, onSelect }: TourCardProps) => {
-  const { toast } = useToast();
-  const telegramUser = getTelegramUser();
-  const userId = telegramUser?.id.toString();
+const mealTypeIcons: Record<string, string> = {
+  'ai': '🍽️ All Inclusive',
+  'uai': '🍾 Ultra All Inclusive',
+  'fb': '🍳 Полный пансион',
+  'hb': '🥐 Полупансион',
+  'bb': '☕ Только завтрак',
+  'ro': '🏠 Без питания'
+};
 
-  // Format dates
-  const formatDate = (date: Date | string | null | undefined) => {
-    if (!date) return '';
-    return new Date(date).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' });
-  };
-
-  const startDateStr = formatDate(tour.startDate);
-  const endDateStr = formatDate(tour.endDate);
-  const dateRange = startDateStr && endDateStr ? `${startDateStr}-${endDateStr}` : '';
-
-  // Handle booking
-  const handleBooking = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    
-    if (!userId) {
-      toast({
-        title: "Ошибка",
-        description: "Для бронирования необходимо авторизоваться",
-        variant: "destructive"
-      });
-      return;
-    }
-    
-    // Open booking link in new tab
-    if (tour.link) {
-      window.open(tour.link, '_blank');
-      
-      // Record booking in database
-      apiRequest('POST', '/api/booking', {
-        userId,
-        tourId: tour.id,
-        price: tour.price,
-        status: 'pending'
-      }).catch((error) => {
-        console.error('Error recording booking:', error);
-      });
+export default function TourCard({
+  tour,
+  onVote,
+  onBook,
+  isFavorite = false,
+  onToggleFavorite,
+  index = 0
+}: TourCardProps) {
+  const cardVariants = {
+    hidden: { 
+      opacity: 0, 
+      y: 50,
+      scale: 0.9
+    },
+    visible: { 
+      opacity: 1, 
+      y: 0,
+      scale: 1,
+      transition: {
+        duration: 0.5,
+        delay: index * 0.1,
+        ease: [0.4, 0, 0.2, 1]
+      }
+    },
+    hover: {
+      y: -5,
+      boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)',
+      transition: {
+        duration: 0.2
+      }
     }
   };
 
-  // Handle save to watchlist
-  const handleSave = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    
-    if (!userId) {
-      toast({
-        title: "Ошибка",
-        description: "Для сохранения необходимо авторизоваться",
-        variant: "destructive"
-      });
-      return;
+  const imageVariants = {
+    hover: {
+      scale: 1.05,
+      transition: {
+        duration: 0.3
+      }
     }
-    
-    toast({
-      title: "Тур сохранен",
-      description: "Тур добавлен в список желаний"
-    });
+  };
+
+  const heartVariants = {
+    tap: {
+      scale: [1, 1.3, 1],
+      transition: {
+        duration: 0.3
+      }
+    }
   };
 
   return (
-    <Card className="bg-white rounded-lg shadow-md overflow-hidden mb-4 hover:shadow-lg transition-shadow duration-200 cursor-pointer" onClick={onSelect}>
-      {/* Улучшаем отображение изображений с более надежной обработкой ошибок */}
-      <div className="relative w-full h-48 bg-gray-200 overflow-hidden">
-        {tour.image ? (
-          <img 
-            src={tour.image} 
-            alt={tour.title} 
-            className="w-full h-full object-cover transition-opacity duration-300"
-            onError={(e) => {
-              console.log(`Ошибка загрузки изображения: ${tour.image}`);
-              // При ошибке загрузки заменяем на резервное изображение
-              e.currentTarget.onerror = null; // Предотвращаем бесконечную рекурсию
-              
-              // Проверяем, если ссылка начинается с http:// (без s), меняем на https://
-              if (tour.image?.startsWith('http://')) {
-                console.log(`Преобразование http в https: ${tour.image}`);
-                e.currentTarget.src = tour.image.replace('http://', 'https://');
-                return;
-              }
-              
-              // Используем предвычисленное значение для запроса, избегая проблем с кодировкой
-              const destQuery = encodeURIComponent(tour.destination).replace(/%20/g, '+');
-              const hotelQuery = encodeURIComponent(tour.hotel).replace(/%20/g, '+');
-              
-              // Добавляем случайность в URL, чтобы избежать кэширования браузером
-              const randomSeed = Math.floor(Math.random() * 1000);
-              console.log(`Использование запасного изображения Unsplash для ${tour.hotel}`);
-              
-              // Настраиваем запасное изображение с параметрами отеля и направления
-              e.currentTarget.src = `https://source.unsplash.com/random/800x600?hotel,resort,${destQuery},${hotelQuery}&sig=${randomSeed}`;
-            }}
-            loading="lazy" // Добавляем ленивую загрузку для оптимизации
+    <motion.div
+      className="bg-white dark:bg-gray-800 rounded-xl shadow-lg overflow-hidden"
+      variants={cardVariants}
+      initial="hidden"
+      animate="visible"
+      whileHover="hover"
+      layout
+    >
+      {/* Image Section */}
+      <div className="relative h-48 overflow-hidden">
+        <motion.img
+          src={tour.imageUrl || `https://source.unsplash.com/800x600/?hotel,${tour.country}`}
+          alt={tour.hotelName}
+          className="w-full h-full object-cover"
+          variants={imageVariants}
+        />
+        
+        {/* Match Score Badge */}
+        {tour.matchScore && (
+          <motion.div
+            className="absolute top-3 left-3"
+            initial={{ scale: 0 }}
+            animate={{ scale: 1 }}
+            transition={{ delay: 0.5 }}
+          >
+            <Badge className="bg-green-500 text-white">
+              {tour.matchScore}% совпадение
+            </Badge>
+          </motion.div>
+        )}
+
+        {/* Favorite Button */}
+        <motion.button
+          className="absolute top-3 right-3 p-2 bg-white/80 dark:bg-gray-800/80 rounded-full backdrop-blur-sm"
+          whileTap="tap"
+          variants={heartVariants}
+          onClick={(e) => {
+            e.stopPropagation();
+            onToggleFavorite?.();
+          }}
+        >
+          <Heart
+            className={cn(
+              "w-5 h-5 transition-colors",
+              isFavorite ? "fill-red-500 text-red-500" : "text-gray-600 dark:text-gray-400"
+            )}
           />
-        ) : (
-          <div className="w-full h-full flex items-center justify-center text-gray-500">
-            <p>Изображение недоступно</p>
+        </motion.button>
+
+        {/* Beach Line Badge */}
+        {tour.beachLine && (
+          <div className="absolute bottom-3 left-3">
+            <Badge className="bg-blue-500 text-white">
+              {tour.beachLine} линия пляжа
+            </Badge>
           </div>
         )}
-        
-        {/* Добавляем градиентное затемнение снизу для лучшей читаемости текста на светлых изображениях */}
-        <div className="absolute bottom-0 left-0 right-0 h-16 bg-gradient-to-t from-black/60 to-transparent"></div>
-        
-        {/* Бейдж провайдера */}
-        <div className="absolute top-2 right-2 bg-white/90 text-xs font-medium px-2 py-1 rounded-md shadow-sm">
-          {tour.provider}
-        </div>
       </div>
-      <CardContent className="p-4">
-        <div className="flex justify-between items-start mb-2">
-          <h3 className="text-lg font-medium">{tour.title}</h3>
-          <div className={`flex items-center ${tour.matchScore && tour.matchScore >= 85 ? 'bg-status-success' : tour.matchScore && tour.matchScore >= 70 ? 'bg-yellow-500' : 'bg-blue-500'} text-white px-2 py-1 rounded text-xs`}>
-            <Star className="w-3 h-3 mr-1" />
-            <span>{tour.matchScore ? `${tour.matchScore}% соответствие` : 'Новый'}</span>
-          </div>
-        </div>
-        
-        <div className="flex items-center text-sm mb-2">
-          <MapPin className="text-telegram-blue w-4 h-4 mr-1" />
-          <span>{tour.destination}</span>
-          <span className="mx-2">•</span>
-          <Star className="text-yellow-400 w-4 h-4 mr-1" />
-          <span>{tour.hotelStars || 4} звезд</span>
-          {tour.rating && (
-            <>
-              <span className="mx-2">•</span>
-              <span className="bg-green-100 text-green-800 text-xs font-medium px-2 py-0.5 rounded flex items-center">
-                <ThumbsUp className="w-3 h-3 mr-1" />
-                {tour.rating}/5
-              </span>
-            </>
-          )}
-        </div>
-        
-        <div className="flex justify-between items-center mb-3">
-          <div className="text-sm flex items-center">
-            <Calendar className="text-telegram-midgray w-4 h-4 mr-1" />
-            <span>{tour.nights} ночей {dateRange ? `(${dateRange})` : ''}</span>
-          </div>
-          <div className="text-sm flex items-center">
-            <Utensils className="text-telegram-midgray w-4 h-4 mr-1" />
-            <span>{tour.mealType || 'Питание не указано'}</span>
-          </div>
-        </div>
-        
-        <div className="flex items-baseline justify-between mb-3">
-          {tour.priceOld && tour.priceOld > tour.price && (
-            <div className="text-sm text-telegram-midgray line-through">
-              {tour.priceOld.toLocaleString()} ₽
+
+      {/* Content Section */}
+      <div className="p-5">
+        {/* Hotel Name & Rating */}
+        <div className="flex items-start justify-between mb-3">
+          <div>
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+              {tour.hotelName}
+            </h3>
+            <div className="flex items-center gap-1 mt-1">
+              {[...Array(5)].map((_, i) => (
+                <Star
+                  key={i}
+                  className={cn(
+                    "w-4 h-4",
+                    i < tour.starRating
+                      ? "fill-yellow-400 text-yellow-400"
+                      : "text-gray-300 dark:text-gray-600"
+                  )}
+                />
+              ))}
             </div>
+          </div>
+          {tour.tourOperator && (
+            <Badge variant="outline" className="text-xs">
+              {tour.tourOperator}
+            </Badge>
           )}
-          <div className={`text-xl font-bold text-telegram-blue ${tour.priceOld ? 'ml-auto' : ''}`}>
-            {tour.price.toLocaleString()} ₽
+        </div>
+
+        {/* Location */}
+        <div className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400 mb-3">
+          <MapPin className="w-4 h-4" />
+          <span>{tour.country}{tour.region ? `, ${tour.region}` : ''}</span>
+        </div>
+
+        {/* Tour Details */}
+        <div className="grid grid-cols-2 gap-3 mb-4">
+          <div className="flex items-center gap-2 text-sm">
+            <Calendar className="w-4 h-4 text-gray-400" />
+            <span className="text-gray-700 dark:text-gray-300">
+              {tour.nights} ночей
+            </span>
+          </div>
+          
+          <div className="flex items-center gap-2 text-sm">
+            <Utensils className="w-4 h-4 text-gray-400" />
+            <span className="text-gray-700 dark:text-gray-300">
+              {mealTypeIcons[tour.mealType] || tour.mealType}
+            </span>
           </div>
         </div>
-        
-        <div className="flex space-x-2">
-          <Button 
-            className="flex-1 bg-telegram-blue hover:bg-blue-600 text-white"
-            onClick={onSelect}
+
+        {/* Room Type */}
+        {tour.roomType && (
+          <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+            {tour.roomType}
+          </p>
+        )}
+
+        {/* Price */}
+        <div className="flex items-end justify-between mb-4">
+          <div>
+            <p className="text-2xl font-bold text-gray-900 dark:text-white">
+              {tour.price.toLocaleString('ru-RU')} ₽
+            </p>
+            <p className="text-xs text-gray-500 dark:text-gray-400">
+              за {tour.nights} ночей
+            </p>
+          </div>
+          
+          <p className="text-sm text-gray-600 dark:text-gray-400">
+            {Math.round(tour.price / tour.nights).toLocaleString('ru-RU')} ₽/ночь
+          </p>
+        </div>
+
+        {/* Actions */}
+        <div className="flex gap-2">
+          {onVote && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="flex-1"
+              onClick={onVote}
+            >
+              <Users className="w-4 h-4 mr-1" />
+              Голосовать
+            </Button>
+          )}
+          
+          <Button
+            size="sm"
+            className="flex-1 bg-telegram-blue hover:bg-telegram-blue/90"
+            onClick={onBook || (() => window.open(tour.link, '_blank'))}
           >
             Подробнее
           </Button>
-          <Button 
-            className="flex-shrink-0 bg-status-success hover:bg-green-600 text-white"
-            onClick={handleBooking}
-          >
-            Бронировать
-          </Button>
-          <Button 
-            variant="outline"
-            className="flex-shrink-0 border border-gray-300 hover:bg-gray-100 text-telegram-darkgray p-0 w-10"
-            onClick={handleSave}
-          >
-            <Heart className="h-4 w-4" />
-          </Button>
         </div>
-      </CardContent>
-    </Card>
+      </div>
+    </motion.div>
   );
-};
-
-export default TourCard;
+}
