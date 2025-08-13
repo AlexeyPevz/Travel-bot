@@ -44,11 +44,26 @@ import { hotelDeduplicationService } from './services/hotelDeduplication';
 export async function registerRoutes(app: Express): Promise<Server> {
   const server = createServer(app);
 
-  // Запускаем бота
-  const bot = await startBot(server);
+  // Запускаем бота НЕБЛОКИРУЮЩЕ, если не отключен флагом
+  const disableBot = process.env.DISABLE_BOT === 'true';
+  if (!disableBot) {
+    (async () => {
+      try {
+        await startBot(server);
+      } catch (err) {
+        console.error('Bot startup failed, continuing without bot:', err);
+      }
+    })();
+  }
   
-  // Запускаем мониторинг
-  startMonitoring();
+  // Запускаем мониторинг неблокирующе
+  (async () => {
+    try {
+      startMonitoring();
+    } catch (err) {
+      console.error('Monitoring startup failed:', err);
+    }
+  })();
 
   // Setup Prometheus metrics
   setupMetrics(app);

@@ -122,6 +122,8 @@ process.on('uncaughtException', (error: Error) => {
   logger.error('Uncaught Exception:', error);
   logger.error('Shutting down due to uncaught exception...');
   
-  // Always exit on uncaught exceptions
-  process.exit(1);
+  // Always exit on uncaught exceptions in production
+  if (process.env.NODE_ENV === 'production') {
+    process.exit(1);
+  }
 });

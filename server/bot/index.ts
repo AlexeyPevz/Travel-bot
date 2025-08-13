@@ -9,6 +9,19 @@ import { StartCommand } from './commands/start';
 let bot: TelegramBot | null = null;
 let isHandlingCommand = false;
 
+function withTimeout<T>(promise: Promise<T>, ms = 5000): Promise<T> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), ms);
+  return (async () => {
+    try {
+      const result = await promise;
+      return result as T;
+    } finally {
+      clearTimeout(timeout);
+    }
+  })();
+}
+
 /**
  * Создает и запускает бот Telegram
  * 
@@ -19,6 +32,12 @@ let isHandlingCommand = false;
  * @returns Экземпляр бота
  */
 export async function startBot(server: Server): Promise<TelegramBot> {
+  if (process.env.DISABLE_BOT === 'true') {
+    console.log('Bot startup skipped due to DISABLE_BOT=true');
+    // @ts-expect-error returning dummy
+    return null;
+  }
+
   const token = process.env.TELEGRAM_TOKEN;
   
   if (!token) {
@@ -30,31 +49,26 @@ export async function startBot(server: Server): Promise<TelegramBot> {
     // Останавливаем и очищаем предыдущий экземпляр бота если он существует
     if (bot) {
       try {
-        // Останавливаем polling, если он был активен
-        await bot.stopPolling().catch(e => console.log('Polling was not active'));
-        console.log('Остановлен предыдущий экземпляр бота');
-        await new Promise(resolve => setTimeout(resolve, 1000));
+        await bot.stopPolling().catch(() => undefined);
+        await new Promise(resolve => setTimeout(resolve, 500));
         bot = null;
       } catch (e) {
         console.error('Ошибка при остановке предыдущего экземпляра бота:', e);
       }
     }
 
-    // Удаляем webhook и отбрасываем ожидающие обновления
+    // Удаляем webhook и отбрасываем ожидающие обновления (с таймаутом)
     try {
-      const response = await fetch(`https://api.telegram.org/bot${token}/deleteWebhook?drop_pending_updates=true`);
-      const result = await response.json();
-      console.log('Очистка webhook статус:', result.ok);
-      
-      // Очищаем очередь обновлений
-      await fetch(`https://api.telegram.org/bot${token}/getUpdates?offset=-1`);
+      const del = await withTimeout(fetch(`https://api.telegram.org/bot${token}/deleteWebhook?drop_pending_updates=true`), 4000);
+      await del?.json?.().catch(() => undefined);
+      await withTimeout(fetch(`https://api.telegram.org/bot${token}/getUpdates?offset=-1`), 4000).catch(() => undefined);
     } catch (e) {
-      console.error('Ошибка при очистке webhook:', e);
+      console.error('Ошибка при очистке webhook (ignored):', e);
     }
 
     // Создаем новый экземпляр бота без polling
     const options: TelegramBot.ConstructorOptions = {
-      polling: false  // По умолчанию не используем polling
+      polling: false
     };
 
     bot = new TelegramBot(token, options);
@@ -70,73 +84,60 @@ export async function startBot(server: Server): Promise<TelegramBot> {
         const chatId = msg.chat.id;
         const userId = msg.from?.id.toString();
         if (!userId) return;
-        
         const paramStr = match?.[1];
-        
         if (paramStr && paramStr.startsWith('ref_')) {
-          // Handle referral deep link
           const referrerId = paramStr.substring(4);
-          
-          // Check if referrer exists
           const referrer = await storage.getProfile(referrerId);
-          
           if (referrer) {
-            // Check if this is a new user
             const userProfile = await storage.getProfile(userId);
-            
             if (!userProfile) {
-              // New user, register referral
               await addReferral(referrerId, userId);
-              
-              await bot.sendMessage(
+              await bot!.sendMessage(
                 chatId,
                 `Добро пожаловать! Вы перешли по реферальной ссылке от ${referrer.name}. Вы получите бонус после заполнения анкеты.`
               );
             }
           }
         }
-        
-        // Continue with regular start command
-        await handleCommand(bot, chatId, userId, '/start', msg);
+        await handleCommand(bot!, chatId, userId, '/start', msg);
       },
       'myrequests': async (msg: TelegramBot.Message) => {
         const chatId = msg.chat.id;
         const userId = msg.from?.id.toString();
         if (userId) {
-          await handleCommand(bot, chatId, userId, '/myrequests', msg);
+          await handleCommand(bot!, chatId, userId, '/myrequests', msg);
         }
       },
       'referral': async (msg: TelegramBot.Message) => {
         const chatId = msg.chat.id;
         const userId = msg.from?.id.toString();
         if (userId) {
-          await handleCommand(bot, chatId, userId, '/referral', msg);
+          await handleCommand(bot!, chatId, userId, '/referral', msg);
         }
       },
       'help': async (msg: TelegramBot.Message) => {
         const chatId = msg.chat.id;
         const userId = msg.from?.id.toString();
         if (userId) {
-          await handleCommand(bot, chatId, userId, '/help', msg);
+          await handleCommand(bot!, chatId, userId, '/help', msg);
         }
       },
       'join': async (msg: TelegramBot.Message) => {
         const chatId = msg.chat.id;
         const userId = msg.from?.id.toString();
         if (userId && msg.chat.type !== 'private') {
-          await handleCommand(bot, chatId, userId, '/join', msg);
+          await handleCommand(bot!, chatId, userId, '/join', msg);
         }
       },
       'groupsetup': async (msg: TelegramBot.Message) => {
         const chatId = msg.chat.id;
         const userId = msg.from?.id.toString();
         if (userId && msg.chat.type !== 'private') {
-          await handleCommand(bot, chatId, userId, '/groupsetup', msg);
+          await handleCommand(bot!, chatId, userId, '/groupsetup', msg);
         }
       }
     };
 
-    // Регистрируем обработчики команд
     bot.onText(/\/start(?:\s+(.+))?/, commandHandlers.start);
     bot.onText(/\/myrequests/, commandHandlers.myrequests);
     bot.onText(/\/referral/, commandHandlers.referral);
@@ -144,21 +145,18 @@ export async function startBot(server: Server): Promise<TelegramBot> {
     bot.onText(/\/join/, commandHandlers.join);
     bot.onText(/\/groupsetup/, commandHandlers.groupsetup);
 
-    // Обработчик обычных сообщений
     bot.on('message', async (msg) => {
       if (msg.text && !msg.text.startsWith('/')) {
         const chatId = msg.chat.id;
         const userId = msg.from?.id.toString();
-        
         if (userId) {
-          await handleMessage(bot, chatId, userId, msg.text, msg);
+          await handleMessage(bot!, chatId, userId, msg.text, msg);
         }
       }
     });
 
-    // Обработчик callback_query (инлайн кнопки)
     bot.on('callback_query', async (callbackQuery) => {
-      await handleCallback(bot, callbackQuery);
+      await handleCallback(bot!, callbackQuery);
     });
     
     const useWebhook = process.env.TELEGRAM_USE_WEBHOOK === 'true';
@@ -166,11 +164,18 @@ export async function startBot(server: Server): Promise<TelegramBot> {
 
     if (useWebhook && appUrl) {
       const webhookUrl = `${appUrl.replace(/\/$/, '')}/api/telegram/webhook`;
-      await bot.setWebHook(webhookUrl);
-      console.log('Telegram webhook set to:', webhookUrl);
+      try {
+        await withTimeout(bot.setWebHook(webhookUrl) as any, 5000);
+        console.log('Telegram webhook set to:', webhookUrl);
+      } catch (e) {
+        console.error('Failed to set webhook (ignored):', e);
+      }
     } else {
-      // Запускаем поллинг только если не используем webhook
-      await bot.startPolling();
+      try {
+        await withTimeout(bot.startPolling() as any, 5000);
+      } catch (e) {
+        console.error('Failed to start polling (ignored):', e);
+      }
     }
 
     return bot;

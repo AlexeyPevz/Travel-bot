@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
-import { redisClient } from '../services/cache';
+import { redis as redisClient } from '../services/cache';
 import { createHash } from 'crypto';
 import logger from '../utils/logger';
 

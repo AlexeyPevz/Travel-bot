@@ -1,5 +1,6 @@
 import winston from 'winston';
 import path from 'path';
+import fs from 'fs';
 
 // Define log levels
 const levels = {
@@ -21,6 +22,17 @@ const colors = {
 
 // Tell winston about colors
 winston.addColors(colors);
+
+// Ensure logs directory exists
+const logsDir = path.join(process.cwd(), 'logs');
+try {
+  if (!fs.existsSync(logsDir)) {
+    fs.mkdirSync(logsDir, { recursive: true });
+  }
+} catch (e) {
+  // If we cannot create logs directory, we'll fallback to console-only
+  // and proceed without throwing to avoid crashing the app at startup
+}
 
 // Define log format
 const format = winston.format.combine(
@@ -49,25 +61,39 @@ const format = winston.format.combine(
 );
 
 // Define transports
-const transports = [
+const transports: winston.transport[] = [
   // Console transport
   new winston.transports.Console(),
-  
-  // File transport for errors
-  new winston.transports.File({
-    filename: path.join('logs', 'error.log'),
+];
+
+// Attempt to add file transports safely
+try {
+  const errorFile = new winston.transports.File({
+    filename: path.join(logsDir, 'error.log'),
     level: 'error',
     maxsize: 5242880, // 5MB
     maxFiles: 5,
-  }),
-  
-  // File transport for all logs
-  new winston.transports.File({
-    filename: path.join('logs', 'combined.log'),
+  });
+  errorFile.on('error', (err) => {
+    // eslint-disable-next-line no-console
+    console.error('Logger error transport failed:', err);
+  });
+  transports.push(errorFile);
+
+  const combinedFile = new winston.transports.File({
+    filename: path.join(logsDir, 'combined.log'),
     maxsize: 5242880, // 5MB
     maxFiles: 5,
-  }),
-];
+  });
+  combinedFile.on('error', (err) => {
+    // eslint-disable-next-line no-console
+    console.error('Logger combined transport failed:', err);
+  });
+  transports.push(combinedFile);
+} catch (e) {
+  // eslint-disable-next-line no-console
+  console.error('Failed to initialize file transports, continuing with console only:', e);
+}
 
 // Create the logger
 const logger = winston.createLogger({
@@ -75,6 +101,12 @@ const logger = winston.createLogger({
   levels,
   format,
   transports,
+});
+
+// Handle logger-level transport errors to avoid unhandled exceptions
+logger.on('error', (err) => {
+  // eslint-disable-next-line no-console
+  console.error('Winston logger emitted an error:', err);
 });
 
 // Add stream for Morgan
@@ -90,22 +122,29 @@ export const apiLogger = logger.child({ service: 'api' });
 export const dbLogger = logger.child({ service: 'database' });
 export const aiLogger = logger.child({ service: 'ai' });
 
-// Handle exceptions and rejections
-logger.exceptions.handle(
-  new winston.transports.File({ filename: path.join('logs', 'exceptions.log') })
-);
+// Handle exceptions and rejections (safely)
+try {
+  const exceptionsTransport = new winston.transports.File({ filename: path.join(logsDir, 'exceptions.log') });
+  exceptionsTransport.on('error', (err) => {
+    // eslint-disable-next-line no-console
+    console.error('Logger exceptions transport failed:', err);
+  });
+  logger.exceptions.handle(exceptionsTransport);
+} catch (e) {
+  // eslint-disable-next-line no-console
+  console.error('Failed to initialize exceptions transport:', e);
+}
 
-logger.rejections.handle(
-  new winston.transports.File({ filename: path.join('logs', 'rejections.log') })
-);
-
-// Extend logger with child method if not present
-if (!logger.child) {
-  logger.child = function(meta: any) {
-    const childLogger = Object.create(this);
-    childLogger.defaultMeta = { ...this.defaultMeta, ...meta };
-    return childLogger;
-  };
+try {
+  const rejectionsTransport = new winston.transports.File({ filename: path.join(logsDir, 'rejections.log') });
+  rejectionsTransport.on('error', (err) => {
+    // eslint-disable-next-line no-console
+    console.error('Logger rejections transport failed:', err);
+  });
+  logger.rejections.handle(rejectionsTransport);
+} catch (e) {
+  // eslint-disable-next-line no-console
+  console.error('Failed to initialize rejections transport:', e);
 }
 
 export default logger;

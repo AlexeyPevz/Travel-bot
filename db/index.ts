@@ -1,5 +1,5 @@
-import dotenv from 'dotenv-safe';
-dotenv.config({ allowEmptyValues: true });
+import dotenv from 'dotenv';
+dotenv.config();
 
 import { Pool } from 'pg';
 import { drizzle } from 'drizzle-orm/node-postgres';
