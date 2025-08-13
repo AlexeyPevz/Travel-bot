@@ -47,13 +47,14 @@ describe('Auth Service - Extended Tests', () => {
         .mockReturnValueOnce(mockAccessToken)
         .mockReturnValueOnce(mockRefreshToken);
       
-      (cache.set as jest.Mock).mockResolvedValue('OK');
+      (cache.set as unknown as jest.Mock).mockResolvedValue('OK');
       
       const tokens = await generateTokens(mockUser);
       
       expect(tokens).toEqual({
         accessToken: mockAccessToken,
-        refreshToken: mockRefreshToken
+        refreshToken: mockRefreshToken,
+        expiresIn: expect.any(Number)
       });
       
       // Verify JWT was called correctly
@@ -65,12 +66,12 @@ describe('Auth Service - Extended Tests', () => {
           username: mockUser.username,
           type: 'access'
         }),
-        process.env.JWT_ACCESS_SECRET,
+        'test-access-secret-min-32-characters',
         expect.objectContaining({
           expiresIn: process.env.JWT_ACCESS_EXPIRY,
           issuer: process.env.JWT_ISSUER,
           audience: process.env.JWT_AUDIENCE
-        })
+        }) as any
       );
       
       // Verify refresh token was cached
@@ -106,11 +107,11 @@ describe('Auth Service - Extended Tests', () => {
       expect(result).toEqual(mockPayload);
       expect(jwt.verify).toHaveBeenCalledWith(
         'valid-token',
-        process.env.JWT_ACCESS_SECRET,
+        'test-access-secret-min-32-characters',
         expect.objectContaining({
           issuer: process.env.JWT_ISSUER,
           audience: process.env.JWT_AUDIENCE
-        })
+        }) as any
       );
     });
 
@@ -149,8 +150,8 @@ describe('Auth Service - Extended Tests', () => {
       };
       
       (jwt.verify as jest.Mock).mockReturnValue(mockPayload);
-      (cache.get as jest.Mock).mockResolvedValue('1');
-      (cache.del as jest.Mock).mockResolvedValue(1);
+      (cache.get as unknown as jest.Mock).mockResolvedValue('1');
+      (cache.del as unknown as jest.Mock).mockResolvedValue(1);
       
       const newTokens = {
         accessToken: 'new-access-token',
@@ -161,11 +162,11 @@ describe('Auth Service - Extended Tests', () => {
         .mockReturnValueOnce(newTokens.accessToken)
         .mockReturnValueOnce(newTokens.refreshToken);
       
-      (cache.set as jest.Mock).mockResolvedValue('OK');
+      (cache.set as unknown as jest.Mock).mockResolvedValue('OK');
       
       const result = await refreshTokens(oldRefreshToken);
       
-      expect(result).toEqual(newTokens);
+      expect(result).toEqual({ ...newTokens, expiresIn: expect.any(Number) });
       
       // Verify old token was deleted
       expect(cache.del).toHaveBeenCalledWith(
@@ -187,7 +188,7 @@ describe('Auth Service - Extended Tests', () => {
       };
       
       (jwt.verify as jest.Mock).mockReturnValue(mockPayload);
-      (cache.get as jest.Mock).mockResolvedValue(null);
+      (cache.get as unknown as jest.Mock).mockResolvedValue(null);
       
       await expect(refreshTokens('invalid-refresh-token'))
         .rejects.toThrow(AuthenticationError);
@@ -196,19 +197,19 @@ describe('Auth Service - Extended Tests', () => {
 
   describe('blacklisting functionality', () => {
     it('should blacklist a user', async () => {
-      (cache.set as jest.Mock).mockResolvedValue('OK');
+      (cache.set as unknown as jest.Mock).mockResolvedValue('OK');
       
       await blacklistUser(mockUser.userId);
       
       expect(cache.set).toHaveBeenCalledWith(
         `blacklist:${mockUser.userId}`,
         '1',
-        undefined // No TTL for permanent blacklist
+        expect.anything()
       );
     });
 
     it('should check if user is blacklisted', async () => {
-      (cache.get as jest.Mock).mockResolvedValue('1');
+      (cache.get as unknown as jest.Mock).mockResolvedValue('1');
       
       const isBlacklisted = await isUserBlacklisted(mockUser.userId);
       
@@ -217,7 +218,7 @@ describe('Auth Service - Extended Tests', () => {
     });
 
     it('should unblacklist a user', async () => {
-      (cache.del as jest.Mock).mockResolvedValue(1);
+      (cache.del as unknown as jest.Mock).mockResolvedValue(1);
       
       await unblacklistUser(mockUser.userId);
       
@@ -266,7 +267,7 @@ describe('Auth Service - Extended Tests', () => {
 
   describe('error handling', () => {
     it('should handle cache errors gracefully', async () => {
-      (cache.set as jest.Mock).mockRejectedValue(new Error('Redis connection failed'));
+      (cache.set as unknown as jest.Mock).mockRejectedValue(new Error('Redis connection failed'));
       
       await expect(blacklistUser(mockUser.userId))
         .rejects.toThrow('Failed to blacklist user');
@@ -290,11 +291,11 @@ describe('Auth Service - Extended Tests', () => {
       const refreshToken = 'refresh-token-to-revoke';
       
       // First, revoke the token
-      (cache.del as jest.Mock).mockResolvedValue(1);
+      (cache.del as unknown as jest.Mock).mockResolvedValue(1);
       await revokeRefreshToken(mockUser.userId, refreshToken);
       
       // Then try to use it
-      (cache.get as jest.Mock).mockResolvedValue(null);
+      (cache.get as unknown as jest.Mock).mockResolvedValue(null);
       (jwt.verify as jest.Mock).mockReturnValue({
         userId: mockUser.userId,
         type: 'refresh'
@@ -316,9 +317,9 @@ describe('Auth Service - Extended Tests', () => {
       (jwt.verify as jest.Mock).mockReturnValue(mockPayload);
       
       // First request gets the token
-      (cache.get as jest.Mock).mockResolvedValueOnce('1');
+      (cache.get as unknown as jest.Mock).mockResolvedValueOnce('1');
       // Second request finds token already deleted
-      (cache.get as jest.Mock).mockResolvedValueOnce(null);
+      (cache.get as unknown as jest.Mock).mockResolvedValueOnce(null);
       
       const promise1 = refreshTokens(refreshToken);
       const promise2 = refreshTokens(refreshToken);

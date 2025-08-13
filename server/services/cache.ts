@@ -66,7 +66,7 @@ export const cache = {
   },
 
   // Сохранить значение в кэш
-  async set<T>(key: string, value: T, ttl?: number): Promise<void> {
+  async set<T>(key: string, value: T, ttl?: number): Promise<'OK'> {
     try {
       const serialized = JSON.stringify(value);
       
@@ -77,23 +77,26 @@ export const cache = {
       }
       
       logger.debug(`Cached ${key} with TTL ${ttl || 'infinite'}`);
+      return 'OK';
     } catch (error) {
       logger.error(`Cache set error for key ${key}:`, error);
+      throw error;
     }
   },
 
   // Удалить значение из кэша
-  async del(key: string | string[]): Promise<void> {
+  async del(key: string | string[]): Promise<number> {
     try {
       if (Array.isArray(key)) {
-        await redis.del(...key);
+        return await redis.del(...key);
       } else {
-        await redis.del(key);
+        return await redis.del(key);
       }
       
       logger.debug(`Deleted cache key(s): ${key}`);
     } catch (error) {
       logger.error(`Cache delete error for key ${key}:`, error);
+      throw error;
     }
   },
 
