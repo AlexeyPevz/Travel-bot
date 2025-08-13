@@ -203,6 +203,8 @@ export async function registerRoutes(app: Express, httpServer?: Server): Promise
 
       // Инвалидируем кэш
       await cache.del(cacheKeys.profile(userId));
+      // Сбрасываем кэш поисков туров (параметры зависят от профиля)
+      await cache.clearPattern('tours:search:*');
       
       res.json(profile);
     }));
@@ -279,7 +281,14 @@ export async function registerRoutes(app: Express, httpServer?: Server): Promise
         };
       }
 
-      const tours = await searchTours(searchParams);
+      // Попытка отдать из кэша
+      const toursCacheKey = cacheKeys.tourSearch({ ...(searchParams || {}), userId: userId || null });
+      const cachedTours = await cache.get<any[]>(toursCacheKey);
+      if (cachedTours) {
+        return res.json({ tours: cachedTours });
+      }
+
+      const found = await searchTours(searchParams);
 
       // Если есть профиль, считаем соответствие
       if (userId) {
@@ -290,7 +299,7 @@ export async function registerRoutes(app: Express, httpServer?: Server): Promise
 
         if (profile && profile.priorities) {
           const toursWithScores = await Promise.all(
-            tours.map(async (tour: any) => {
+            found.map(async (tour: any) => {
               const { score, details, analysis } = await calculateTourMatchScore(
                 tour,
                 searchParams,
@@ -302,11 +311,13 @@ export async function registerRoutes(app: Express, httpServer?: Server): Promise
 
           // Сортируем по соответствию
           toursWithScores.sort((a: any, b: any) => b.matchScore - a.matchScore);
+          await cache.set(toursCacheKey, toursWithScores, CACHE_TTL.TOUR_SEARCH);
           return res.json({ tours: toursWithScores });
         }
       }
 
-      res.json({ tours });
+      await cache.set(toursCacheKey, found, CACHE_TTL.TOUR_SEARCH);
+      res.json({ tours: found });
       } catch (error) {
         apiLogger.error('Error searching tours:', error);
         res.status(500).json({ error: 'Internal server error' });

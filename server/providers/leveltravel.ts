@@ -2,6 +2,7 @@ import axios from 'axios';
 import { TourData, TourSearchParams } from './index';
 import { retry, RetryStrategies } from '../utils/retry';
 import { ExternalServiceError } from '../utils/errors';
+import logger from '../utils/logger';
 
 // Расширенный интерфейс для ошибок с информацией о провайдере
 interface ProviderError extends Error {
@@ -12,13 +13,13 @@ interface ProviderError extends Error {
  * Партнерская ссылка для Level.Travel
  * Это реальная партнерская ссылка для редиректа на Level.Travel
  */
-const LEVEL_TRAVEL_PARTNER_ID = process.env.LEVEL_TRAVEL_PARTNER || '627387';
+const LEVEL_TRAVEL_PARTNER_ID = process.env.LEVEL_TRAVEL_PARTNER || process.env.LEVELTRAVEL_PARTNER || '627387';
 const LEVEL_TRAVEL_REFERRAL_URL = `https://level.travel/?ref=${LEVEL_TRAVEL_PARTNER_ID}`;
 
 /**
  * URL базового API Level.Travel
  */
-const LEVEL_TRAVEL_API_URL = "https://api.level.travel";
+const LEVEL_TRAVEL_API_URL = 'https://api.level.travel';
 
 /**
  * Country codes mapping for Level.Travel API
@@ -47,15 +48,12 @@ const COUNTRY_CODES: Record<string, string> = {
  * Meal type mapping for Level.Travel API
  */
 const MEAL_TYPES: Record<string, string> = {
-  // Специальные форматы для лучшей сортировки
   'ro': 'НЕТ - Без питания',
   'bb': 'ЗАВТРАК - Только завтрак (Bed & Breakfast)',
   'hb': 'ПОЛУПАНСИОН - Завтрак и ужин (Half Board)',
   'fb': 'ПОЛНЫЙ ПАНСИОН - Завтрак, обед и ужин (Full Board)',
   'ai': 'ВСЁ ВКЛЮЧЕНО - All Inclusive',
   'uai': 'УЛЬТРА ВСЁ ВКЛЮЧЕНО - Ultra All Inclusive',
-  
-  // Дополнительные вариации названий
   'non': 'НЕТ - Без питания',
   'no_meals': 'НЕТ - Без питания',
   'all': 'ВСЁ ВКЛЮЧЕНО - All Inclusive',
@@ -72,125 +70,53 @@ const MEAL_TYPES: Record<string, string> = {
   'bed_and_breakfast': 'ЗАВТРАК - Только завтрак (Bed & Breakfast)'
 };
 
-/**
- * Format the date in DD.MM.YYYY format for Level.Travel API
- */
 function formatDate(date: Date): string {
-  if (!date || isNaN(date.getTime())) {
-    return '';
-  }
+  if (!date || isNaN(date.getTime())) return '';
   const day = date.getDate().toString().padStart(2, '0');
   const month = (date.getMonth() + 1).toString().padStart(2, '0');
   const year = date.getFullYear();
   return `${day}.${month}.${year}`;
 }
 
-/**
- * Parse meal type from Level.Travel API
- */
 function parseMealType(mealType: string): string {
   if (!mealType) return 'Питание по программе';
-  
-  // Немного отладочной информации
-  console.log(`Парсинг типа питания: "${mealType}"`);
-  
-  // Проверяем, есть ли прямое соответствие
   const normalizedType = mealType.toLowerCase().trim();
-  if (MEAL_TYPES[normalizedType]) {
-    return MEAL_TYPES[normalizedType];
-  }
-  
-  // Ищем частичное соответствие
+  if (MEAL_TYPES[normalizedType]) return MEAL_TYPES[normalizedType];
   for (const key in MEAL_TYPES) {
-    if (normalizedType.includes(key)) {
-      return MEAL_TYPES[key];
-    }
+    if (normalizedType.includes(key)) return MEAL_TYPES[key];
   }
-  
-  // Если это полное текстовое описание, возвращаем его
-  if (normalizedType.length > 5) {
-    return mealType;
-  }
-  
+  if (normalizedType.length > 5) return mealType;
   return 'Питание по программе';
 }
 
-/**
- * Улучшает качество изображения, заменяя URL низкого качества на высокое разрешение
- * 
- * @param imageUrl URL изображения
- * @returns URL изображения с улучшенным качеством
- */
 function enhanceImageQuality(imageUrl: string | undefined): string | undefined {
   if (!imageUrl) return undefined;
-  
   let enhancedUrl = imageUrl;
-  
-  // Удаляем параметры запроса (которые часто ограничивают размер)
-  if (enhancedUrl.includes('?')) {
-    enhancedUrl = enhancedUrl.split('?')[0];
-  }
-  
-  // Заменяем маркеры низкого разрешения на высокое разрешение
-  if (enhancedUrl.includes('/800x600/')) {
-    enhancedUrl = enhancedUrl.replace('/800x600/', '/1600x1200/');
-  }
-  if (enhancedUrl.includes('/400x300/')) {
-    enhancedUrl = enhancedUrl.replace('/400x300/', '/1600x1200/');
-  }
-  if (enhancedUrl.includes('/200x150/')) {
-    enhancedUrl = enhancedUrl.replace('/200x150/', '/1600x1200/');
-  }
-  
-  // Проверяем, что ссылка начинается с https (иногда в API возвращаются http-ссылки)
-  if (enhancedUrl.startsWith('http://')) {
-    enhancedUrl = enhancedUrl.replace('http://', 'https://');
-  }
-  
+  if (enhancedUrl.includes('?')) enhancedUrl = enhancedUrl.split('?')[0];
+  if (enhancedUrl.includes('/800x600/')) enhancedUrl = enhancedUrl.replace('/800x600/', '/1600x1200/');
+  if (enhancedUrl.includes('/400x300/')) enhancedUrl = enhancedUrl.replace('/400x300/', '/1600x1200/');
+  if (enhancedUrl.includes('/200x150/')) enhancedUrl = enhancedUrl.replace('/200x150/', '/1600x1200/');
+  if (enhancedUrl.startsWith('http://')) enhancedUrl = enhancedUrl.replace('http://', 'https://');
   return enhancedUrl;
 }
 
-/**
- * Создает реферальную ссылку для перехода к отелю/туру
- * @param hotelId ID отеля в системе Level.Travel
- * @param params Дополнительные параметры для ссылки
- * @returns Ссылка с реферальной информацией
- */
 function createReferralLink(hotelId: string | number, params?: any): string {
   const affiliateUrl = process.env.LEVEL_TRAVEL_AFFILIATE_URL;
   const marker = process.env.LEVEL_TRAVEL_MARKER || '627387';
-  
-  // Если есть готовая партнерская ссылка
   if (affiliateUrl && affiliateUrl.includes('level.tpx.lt')) {
-    const urlParams = new URLSearchParams({
-      hotel_id: hotelId.toString(),
-      marker: marker
-    });
-    
+    const urlParams = new URLSearchParams({ hotel_id: hotelId.toString(), marker });
     if (params) {
       if (params.start_date) urlParams.append('start_date', params.start_date);
       if (params.nights) urlParams.append('nights', params.nights.toString());
       if (params.adults) urlParams.append('adults', params.adults.toString());
       if (params.kids) urlParams.append('kids', params.kids.toString());
     }
-    
     return `${affiliateUrl}&${urlParams.toString()}`;
   }
-  
-  // Иначе используем стандартную партнерскую ссылку
-  if (!hotelId) {
-    return `https://level.travel/?partner_id=${LEVEL_TRAVEL_PARTNER_ID}`;
-  }
-  
+  if (!hotelId) return `https://level.travel/?partner_id=${LEVEL_TRAVEL_PARTNER_ID}`;
   return `https://level.travel/hotels/${hotelId}?partner_id=${LEVEL_TRAVEL_PARTNER_ID}`;
 }
 
-/**
- * Создает заголовки авторизации для API Level.Travel
- * 
- * @param apiKey API ключ для Level.Travel
- * @returns Объект с заголовками
- */
 function createLevelTravelHeaders(apiKey: string) {
   return {
     'Authorization': `Token token="${apiKey}"`,
@@ -210,10 +136,8 @@ function createLevelTravelHeaders(apiKey: string) {
 function standardizeHotelData(hotelData: any): any {
   if (!hotelData) return null;
   
-  console.log(`ОБНОВЛЕННАЯ ЛОГИКА ОБРАБОТКИ ФОТОГРАФИЙ v2`);
-  
   // Отладочная информация: показываем структуру данных
-  console.log(`HotelDetails.photos:`, hotelData.photos);
+  // console.log(`HotelDetails.photos:`, hotelData.photos);
   
   // По документации Level.Travel API:
   // Изображения отеля хранятся в поле 'images' как массив объектов {id, url}
@@ -223,7 +147,7 @@ function standardizeHotelData(hotelData: any): any {
   
   // Обработка photos (в некоторых ответах API)
   if (hotelData.photos && Array.isArray(hotelData.photos)) {
-    console.log(`Найдено ${hotelData.photos.length} фото в поле photos`);
+    // console.log(`Найдено ${hotelData.photos.length} фото в поле photos`);
     
     // Преобразуем в массив объектов {url: "..."}
     const extractedUrls = hotelData.photos.map((photo: any) => {
@@ -239,12 +163,12 @@ function standardizeHotelData(hotelData: any): any {
     }).filter(Boolean);
     
     processedPhotos = [...processedPhotos, ...extractedUrls];
-    console.log(`Извлечено ${extractedUrls.length} URL из photos`);
+    // console.log(`Извлечено ${extractedUrls.length} URL из photos`);
   }
   
   // Обработка images (в соответствии с документацией Level.Travel)
   if (hotelData.images && Array.isArray(hotelData.images)) {
-    console.log(`Найдено ${hotelData.images.length} фото в поле images`);
+    // console.log(`Найдено ${hotelData.images.length} фото в поле images`);
     
     // Преобразуем в массив объектов {url: "..."}
     const extractedUrls = hotelData.images.map((image: any) => {
@@ -260,7 +184,7 @@ function standardizeHotelData(hotelData: any): any {
     }).filter(Boolean);
     
     processedPhotos = [...processedPhotos, ...extractedUrls];
-    console.log(`Извлечено ${extractedUrls.length} URL из images`);
+    // console.log(`Извлечено ${extractedUrls.length} URL из images`);
   }
     
   // Добавляем image_url если оно есть (в некоторых форматах Level.Travel API)
@@ -269,7 +193,7 @@ function standardizeHotelData(hotelData: any): any {
     if (url) {
       // Добавляем в начало списка как основное изображение
       processedPhotos.unshift({ url });
-      console.log(`Добавлено основное изображение из image_url`);
+      // console.log(`Добавлено основное изображение из image_url`);
     }
   }
   
@@ -278,7 +202,7 @@ function standardizeHotelData(hotelData: any): any {
     const url = enhanceImageQuality(hotelData.image.url);
     if (url) {
       processedPhotos.unshift({ url });
-      console.log(`Добавлено основное изображение из объекта image`);
+      // console.log(`Добавлено основное изображение из объекта image`);
     }
   }
   
@@ -292,7 +216,7 @@ function standardizeHotelData(hotelData: any): any {
     return true;
   });
   
-  console.log(`Итого обработано ${uniquePhotos.length} фотографий`);
+  // console.log(`Итого обработано ${uniquePhotos.length} фотографий`);
   
   // Получаем данные об отеле и его особенностях из всех источников
   const features = hotelData.features || {};
@@ -364,16 +288,16 @@ function standardizeHotelData(hotelData: any): any {
   };
   
   // Логируем комбинированную информацию
-  console.log(`Найден отель в API и базе данных: ${combinedHotel.name}`);
-  console.log(`Комбинированный источник: итого собрано ${uniquePhotos.length} фотографий`);
+  // console.log(`Найден отель в API и базе данных: ${combinedHotel.name}`);
+  // console.log(`Комбинированный источник: итого собрано ${uniquePhotos.length} фотографий`);
   
-  if (uniquePhotos.length > 0) {
-    console.log(`Первое фото: ${uniquePhotos[0].url}`);
-  }
+  // if (uniquePhotos.length > 0) {
+  //   console.log(`Первое фото: ${uniquePhotos[0].url}`);
+  // }
   
-  if (combinedHotel.airportDistance) {
-    console.log(`Скомбинированы данные отеля: ${uniquePhotos.length} фото, расстояние до аэропорта: ${combinedHotel.airportDistance}м`);
-  }
+  // if (combinedHotel.airportDistance) {
+  //   console.log(`Скомбинированы данные отеля: ${uniquePhotos.length} фото, расстояние до аэропорта: ${combinedHotel.airportDistance}м`);
+  // }
   
   return combinedHotel;
 }
@@ -390,19 +314,17 @@ export async function fetchHotelDetails(hotelId: string | number): Promise<any> 
     // Получаем API ключ
     const apiKey = process.env.LEVELTRAVEL_API_KEY;
     if (!apiKey) {
-      console.error("Level.Travel API key is not set");
+      logger.error("Level.Travel API key is not set");
       return null;
     }
 
     // Создаем заголовки авторизации
     const headers = createLevelTravelHeaders(apiKey);
     
-    console.log(`API: Запрашиваем детали отеля с ID ${hotelId}`);
-    
     // СТРОГО ПО ДОКУМЕНТАЦИИ:
     // 1. Получаем информацию об отеле через references/hotels с параметром hotel_ids
     const url = `${LEVEL_TRAVEL_API_URL}/references/hotels`;
-    console.log(`Запрашиваем детали отеля с ID ${hotelId} из API Level.Travel`);
+    // console.log(`Запрашиваем детали отеля с ID ${hotelId} из API Level.Travel`);
     
     const response = await axios.get(url, { 
       params: { hotel_ids: hotelId },
@@ -411,19 +333,19 @@ export async function fetchHotelDetails(hotelId: string | number): Promise<any> 
     
     // Проверяем успешность запроса
     if (response.status !== 200 || !response.data.success) {
-      console.error(`Ошибка при запросе отеля ${hotelId}: ${response.status}`);
+      logger.error(`Ошибка при запросе отеля ${hotelId}: ${response.status}`);
       return null;
     }
     
     // Проверяем наличие отеля в ответе
     if (!response.data.hotels || !response.data.hotels.length) {
-      console.error(`Отель с ID ${hotelId} не найден в API`);
+      logger.error(`Отель с ID ${hotelId} не найден в API`);
       return null;
     }
     
     // Получаем отель из ответа API
     const hotel = response.data.hotels[0];
-    console.log(`Найден отель ${hotel.name} по API reference/hotels`);
+    // console.log(`Найден отель ${hotel.name} по API reference/hotels`);
     
     // 2. Также по документации, для получения более полных данных 
     // следует использовать hotel_dump - выгрузка всей отельной базы
@@ -442,13 +364,13 @@ export async function fetchHotelDetails(hotelId: string | number): Promise<any> 
               h.id.toString() === hotelId.toString());
             
             if (dumpHotel) {
-              console.log(`Найден отель в выгрузке hotel_dump: ${dumpHotel.name}`);
+              // console.log(`Найден отель в выгрузке hotel_dump: ${dumpHotel.name}`);
               
               // Обогащаем наш отель дополнительными данными из dump
               // images: Список объектов {id, url} - В документации, раздел "Отели (выгрузка)"
               if (dumpHotel.images && Array.isArray(dumpHotel.images)) {
                 hotel.images = dumpHotel.images;
-                console.log(`Получено ${dumpHotel.images.length} изображений из dump`);
+                // console.log(`Получено ${dumpHotel.images.length} изображений из dump`);
               }
               
               // Копируем другие поля по документации
@@ -461,11 +383,11 @@ export async function fetchHotelDetails(hotelId: string | number): Promise<any> 
             }
           }
         } catch (dumpFetchError) {
-          console.error(`Ошибка при получении данных по ссылке из dump: ${(dumpFetchError as Error).message}`);
+          logger.error(`Ошибка при получении данных по ссылке из dump: ${(dumpFetchError as Error).message}`);
         }
       }
     } catch (dumpError) {
-      console.error(`Ошибка при получении hotel_dump: ${(dumpError as Error).message}`);
+      logger.error(`Ошибка при получении hotel_dump: ${(dumpError as Error).message}`);
       // Это не критическая ошибка, продолжаем
     }
     
@@ -474,7 +396,7 @@ export async function fetchHotelDetails(hotelId: string | number): Promise<any> 
     
     return standardizedHotel;
   } catch (error) {
-    console.error(`Error fetching hotel details for ${hotelId}:`, (error as Error).message);
+    logger.error(`Error fetching hotel details for ${hotelId}:`, (error as Error).message);
     return null;
   }
 }
@@ -495,7 +417,7 @@ async function testLevelTravelAPI(): Promise<boolean> {
     // Получаем API ключ
     const apiKey = process.env.LEVELTRAVEL_API_KEY;
     if (!apiKey) {
-      console.error("Level.Travel API key is not set");
+      logger.error("Level.Travel API key is not set");
       return false;
     }
     
@@ -512,10 +434,10 @@ async function testLevelTravelAPI(): Promise<boolean> {
       }
     }
     
-    console.error(`Level.Travel API ping failed: ${JSON.stringify(response.data)}`);
+    logger.error(`Level.Travel API ping failed: ${JSON.stringify(response.data)}`);
     return false;
   } catch (error) {
-    console.error("Level.Travel API connection error:", (error as Error).message);
+    logger.error("Level.Travel API connection error:", (error as Error).message);
     return false;
   }
 }
@@ -529,418 +451,202 @@ async function testLevelTravelAPI(): Promise<boolean> {
  */
 export async function fetchToursFromLevelTravel(params: TourSearchParams): Promise<TourData[]> {
   try {
-    console.log("Запуск поиска туров в Level.Travel API");
-    
+    logger.info('Level.Travel: starting search');
+
     // Проверяем доступность API
     const isApiAvailable = await testLevelTravelAPI();
     if (!isApiAvailable) {
-      const err = new Error("Level.Travel API недоступно. Пожалуйста, проверьте ключи API.") as ProviderError;
-      err.provider = "Level.Travel";
+      const err = new Error('Level.Travel API недоступно. Проверьте ключи API.') as ProviderError;
+      err.provider = 'Level.Travel';
       throw err;
     }
-    
-    try {
-      // Подготавливаем данные для запроса
-      console.log("Подготовка параметров запроса к Level.Travel API...");
-      
-      // Получаем ключ API из переменных окружения
-      const apiKey = process.env.LEVELTRAVEL_API_KEY;
-      if (!apiKey) {
-        throw new Error("Level.Travel API key is not set");
-      }
-      
-      // Создаем заголовки для запроса
-      const headers = createLevelTravelHeaders(apiKey);
-      console.log("Используемые заголовки:", headers);
-      
-      // Преобразуем параметры запроса
-      let startDate: Date, endDate: Date, nights: number;
-      
-      // Обрабатываем параметры дат
-      if (params.dateType === 'fixed' && params.startDate && params.endDate) {
-        startDate = new Date(params.startDate);
-        endDate = new Date(params.endDate);
-        
-        // Вычисляем количество ночей
-        const timeDiff = endDate.getTime() - startDate.getTime();
-        nights = Math.round(timeDiff / (1000 * 3600 * 24));
-        
-        if (nights <= 0) {
-          nights = 7; // По умолчанию 7 ночей, если даты заданы неверно
-        }
-      } else if (params.dateType === 'flexible' && params.flexibleMonth && params.tripDuration) {
-        // Получаем первый день текущего месяца
-        const now = new Date();
-        startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 14); // По умолчанию через 2 недели
-        
-        // Поиск по гибким датам
-        nights = params.tripDuration;
-        
-        // Вычисляем конечную дату
-        endDate = new Date(startDate);
-        endDate.setDate(endDate.getDate() + nights);
-      } else {
-        // По умолчанию через 2 недели на 7 ночей
-        startDate = new Date();
-        startDate.setDate(startDate.getDate() + 14);
-        nights = 7;
-        endDate = new Date(startDate);
-        endDate.setDate(endDate.getDate() + nights);
-      }
-      
-      // Определяем страну назначения по названию
-      const destinationLower = (params.destination || 'Турция').toLowerCase();
-      let countryCode = 'TR'; // По умолчанию Турция
-      
-      // Поиск кода страны
-      const countryNames = Object.keys(COUNTRY_CODES);
-      console.log("Доступные страны:", countryNames);
-      
-      // Ищем совпадение по названию страны
-      for (const name of countryNames) {
-        if (destinationLower.includes(name)) {
-          countryCode = COUNTRY_CODES[name];
-          console.log(`Выбран код страны: ${countryCode}`);
-          break;
-        }
-      }
-      
-      // Определяем город вылета
-      const departureCity = params.departureCity || 'Москва';
-      // Преобразуем русское название в английское для API
-      const departureCityMap: Record<string, string> = {
-        'Москва': 'Moscow',
-        'Санкт-Петербург': 'Saint Petersburg',
-        'Екатеринбург': 'Ekaterinburg',
-        'Новосибирск': 'Novosibirsk',
-        'Казань': 'Kazan',
-        'Нижний Новгород': 'Nizhny Novgorod',
-        'Самара': 'Samara',
-        'Краснодар': 'Krasnodar'
-      };
-      const fromCity = departureCityMap[departureCity] || 'Moscow';
-      
-      // Формируем параметры запроса в соответствии с документацией Level.Travel API
-      interface EnqueueParams {
-        from_city: string;         // Город вылета (name_en)
-        to_country: string;        // Страна назначения (ISO2)
-        adults: number;            // Количество взрослых
-        start_date: string;        // Дата вылета
-        nights: string;            // Интервал ночей (например "7..9")
-        kids?: number;             // Количество детей
-        kids_ages?: number[];      // Возраста детей
-        from_country?: string;     // Страна вылета (ISO2)
-        to_city?: string;          // Город назначения (name_en)
-        search_type?: string;      // Тип поиска: 'package' (по умолч.) или 'hotel'
-        hotel_ids?: number[];      // ID конкретных отелей для поиска
-        price_max?: number;        // Максимальная цена
-      }
-      
-      // Параметры запроса по документации
-      const requestData: EnqueueParams = {
-        from_city: fromCity,
-        to_country: countryCode,
-        adults: params.adults || 2,
-        start_date: formatDate(startDate),
-        nights: `${nights}..${nights+2}` // Небольшой разброс для лучших результатов
-      };
-      
-      // Добавляем детей, если есть
-      if (params.children && params.children > 0) {
-        requestData.kids = params.children;
-        if (params.childrenAges && params.childrenAges.length > 0) {
-          requestData.kids_ages = params.childrenAges;
-        }
-      }
-      
-      // Добавляем ограничение бюджета, если указано
-      if (params.budget && params.budget > 0) {
-        requestData.price_max = params.budget;
-      }
-      
-      console.log("Параметры запроса к Level.Travel:", requestData);
-      
-      // Запускаем поиск туров в соответствии с документацией Level.Travel API
-      // Используем ендпоинт /search/enqueue для запуска поиска (в v3)
-      const searchUrl = `${LEVEL_TRAVEL_API_URL}/search/enqueue`;
-      
-      // Формируем query параметры для запроса
-      const queryParams = new URLSearchParams();
-      for (const [key, value] of Object.entries(requestData)) {
-        queryParams.append(key, value.toString());
-      }
-      
-      // Добавляем логирование запроса для отладки
-      console.log(`ЗАПРОС К API Level.Travel - URL: ${searchUrl}`);
-      console.log(`Параметры запроса: ${queryParams.toString()}`);
-      
-      // Попробуем оба метода - сначала GET, если не сработает, то POST
-      let enqueueResponse;
-      
-      try {
-        // Сначала пробуем GET
-        console.log(`Попытка отправки GET запроса на URL: ${searchUrl}`);
-        enqueueResponse = await axios.get(`${searchUrl}?${queryParams.toString()}`, { headers });
-        console.log(`GET запрос успешен, статус: ${enqueueResponse.status}`);
-      } catch (error) {
-        // Проверяем, если ошибка связана с методом (405 Method Not Allowed)
-        if (axios.isAxiosError(error) && error.response?.status === 405) {
-          console.log("Получен код 405 (Method Not Allowed). Пробуем использовать POST метод...");
-          
-          // Пробуем использовать POST метод вместо GET
-          try {
-            enqueueResponse = await axios.post(searchUrl, requestData, { headers });
-            console.log(`POST запрос успешен, статус: ${enqueueResponse.status}`);
-          } catch (postError) {
-            console.error(`Ошибка POST запроса: ${(postError as Error).message}`);
-            throw postError;
-          }
-        } else {
-          // Если это другая ошибка, пробрасываем её дальше
-          console.error(`Ошибка GET запроса: ${(error as Error).message}`);
-          throw error;
-        }
-      }
-      
-      console.log(`Получен статус ответа: ${enqueueResponse.status}`);
-      console.log(`Заголовки ответа:`, enqueueResponse.headers);
-      console.log(`Тело ответа (first 500 chars):`, JSON.stringify(enqueueResponse.data).substring(0, 500));
-      
-      // Проверяем, что запрос успешен
-      if (enqueueResponse.status !== 200) {
-        const err = new Error(`Ошибка при запросе поиска туров: ${enqueueResponse.status} ${enqueueResponse.statusText}`) as ProviderError;
-        err.provider = "Level.Travel";
-        throw err;
-      }
-      
-      if (!enqueueResponse.data || !enqueueResponse.data.success) {
-        const err = new Error(`Неверный формат ответа API: ${JSON.stringify(enqueueResponse.data)}`) as ProviderError;
-        err.provider = "Level.Travel";
-        throw err;
-      }
-      
-      // Получаем ID поиска и URL для получения результатов
-      // В версии v3 API используется request_id
-      const requestId = enqueueResponse.data.request_id;
-      if (!requestId) {
-        const err = new Error(`API не вернуло request_id для поиска: ${JSON.stringify(enqueueResponse.data)}`) as ProviderError;
-        err.provider = "Level.Travel";
-        throw err;
-      }
-      const statusUrl = `${LEVEL_TRAVEL_API_URL}/search/status?request_id=${requestId}&show_size=true`;
-    
-      console.log(`Level.Travel: успешно запущен поиск туров (ID: ${requestId})`);
-      
-      // Выполняем запрос на получение результатов поиска
-      // В некоторых случаях может потребоваться повторный запрос, если первый вернет статус "processing"
-      let retries = 0;
-      const maxRetries = 5; // Увеличиваем количество попыток
-      let hotelsResponse;
-      
-      while (retries < maxRetries) {
-        // Делаем небольшую паузу между запросами
-        if (retries > 0) {
-          // Увеличиваем паузу между запросами для более продолжительного ожидания
-          const waitTime = 2000 * retries; // Больше времени между запросами
-          console.log(`Ожидание ${waitTime}ms перед следующей попыткой...`);
-          await new Promise(resolve => setTimeout(resolve, waitTime));
-        }
-        
-        // Запрашиваем статус поиска
-        const statusResponse = await axios.get(statusUrl, { headers });
-        console.log(`Статус поиска:`, JSON.stringify(statusResponse.data).substring(0, 500));
-        
-        // В ответе приходит объект status с операторами и их статусами
-        if (!statusResponse.data || !statusResponse.data.success) {
-          const err = new Error(`Ошибка при получении статуса поиска: ${JSON.stringify(statusResponse.data)}`) as ProviderError;
-          err.provider = "Level.Travel";
-          throw err;
-        }
-        
-        // Проверяем статусы всех операторов
-        const operatorStatuses = statusResponse.data.status || {};
-        
-        // Даже если не все операторы завершили поиск, мы можем продолжать, если:
-        // 1. Есть хотя бы некоторые завершенные операторы и completeness > 50%
-        // 2. Общее количество найденных результатов (size) > 0
-        
-        const completeness = statusResponse.data.completeness || 0;
-        const size = statusResponse.data.size || 0;
-        
-        console.log(`Completeness: ${completeness}%, Size: ${size} hotels`);
-        
-        // Проверяем, все ли операторы завершили поиск
-        const allCompleted = Object.values(operatorStatuses).every(
-          status => ['completed', 'cached', 'skipped', 'no_results', 'failed', 'all_filtered'].includes(status as string)
-        );
-        
-        // Определяем, есть ли частичные результаты, с которыми можно работать
-        const partialResults = (completeness > 30 && size > 0) || retries >= 3;
-        
-        if (allCompleted || partialResults) {
-          // Все операторы завершили поиск или у нас достаточно частичных результатов
-          console.log(`Поиск ${allCompleted ? 'полностью завершен' : 'частично завершен'} (completeness: ${completeness}%)`);
-          hotelsResponse = statusResponse;
-          break;
-        }
-        
-        // Проверяем, есть ли ошибки у операторов
-        const failedOperators = Object.entries(operatorStatuses)
-          .filter(([_, status]) => status === 'failed')
-          .map(([id]) => id);
-          
-        if (failedOperators.length > 0) {
-          console.log(`Операторы с ошибками: ${failedOperators.join(', ')}`);
-        }
-        
-        retries++;
-        console.log(`Level.Travel: ожидание результатов поиска (попытка ${retries}/${maxRetries})`);
-      }
-      
-      // Проверяем, что поиск успешно завершен 
-      if (!hotelsResponse) {
-        const err = new Error('Не удалось получить результаты поиска туров: превышено время ожидания') as ProviderError;
-        err.provider = "Level.Travel";
-        throw err;
-      }
 
-      // Теперь получаем список отелей с помощью метода get_grouped_hotels
-      const hotelsUrl = `${LEVEL_TRAVEL_API_URL}/search/get_grouped_hotels?request_id=${requestId}`;
-      console.log(`Запрашиваем результаты поиска (отели): ${hotelsUrl}`);
-      
-      try {
-        const hotelsListResponse = await axios.get(hotelsUrl, { headers });
-        console.log(`Статус ответа с отелями: ${hotelsListResponse.status}`);
-        console.log(`Тело ответа с отелями (first 500 chars):`, JSON.stringify(hotelsListResponse.data).substring(0, 500));
-        
-        if (!hotelsListResponse.data || !hotelsListResponse.data.success) {
-          const err = new Error(`Ошибка при получении списка отелей: ${JSON.stringify(hotelsListResponse.data)}`) as ProviderError;
-          err.provider = "Level.Travel";
-          throw err;
-        }
-        
-        // Обрабатываем результаты поиска и преобразуем их в стандартный формат TourData
-        const result: TourData[] = [];
-        
-        // Проходим по всем отелям и формируем объекты туров
-        const hotelsList = hotelsListResponse.data.hotels || [];
-        console.log(`Найдено отелей: ${hotelsList.length}`);
-        
-        for (const hotelData of hotelsList) {
-          try {
-            // В новой структуре API отель находится в поле hotel
-            const hotel = hotelData.hotel;
-            if (!hotel || !hotel.id) continue;
-            
-            // Извлекаем необходимые данные
-            const hotelId = hotel.id;
-            const hotelName = hotel.name;
-            const hotelStars = hotel.stars || 0;
-            const hotelPrice = hotelData.min_price || 0;
-            const hotelOldPrice = hotelData.extras?.previous_price || null;
-            const hotelRating = hotel.rating || null;
-            const hotelReviews = hotel.reviews_count || 0;
-            
-            // Получаем изображения
-            const images: string[] = [];
-            if (hotel.image?.full_size) {
-              images.push(hotel.image.full_size);
-            }
-            if (hotel.images && Array.isArray(hotel.images)) {
-              hotel.images.forEach((img: any) => {
-                if (img.x500) images.push(img.x500);
-              });
-            }
-            
-            // Если есть все необходимые данные, создаем объект тура
-            if (hotelId && hotelName && hotelPrice > 0) {
-              const tour: TourData = {
-                provider: 'leveltravel',
-                externalId: `lt-${hotelId}`,
-                title: `${hotelName} ${hotelStars > 0 ? hotelStars + '★' : ''}`.trim(),
-                description: hotel.desc || '',
-                destination: hotel.city || hotel.region_name || params.destination,
-                hotel: hotelName,
-                hotelStars: hotelStars,
-                price: hotelPrice,
-                priceOld: hotelOldPrice,
-                rating: hotelRating,
-                reviewsCount: hotelReviews,
-                startDate: startDate,
-                endDate: endDate,
-                nights: nights,
-                roomType: 'Стандартный номер',
-                mealType: parseMealType(hotelData.pansion_prices ? Object.keys(hotelData.pansion_prices)[0] : ''),
-                link: createReferralLink(hotelId, {
-                  start_date: startDate.toISOString().split('T')[0],
-                  nights: nights,
-                  adults: params.adults || 2,
-                  kids: params.children || 0
-                }),
-                image: images[0] || '',
-                images: images,
-                
-                // Дополнительные данные
-                departureCity: params.departureCity || 'Москва',
-                arrivalCity: hotel.city || params.destination,
-                tourOperatorId: hotelData.operators?.[0] || null,
-                
-                // Характеристики отеля
-                beachDistance: hotel.features?.beach_distance || null,
-                beachType: hotel.features?.beach_type || null,
-                beachSurface: hotel.features?.beach_surface || null,
-                airportDistance: hotel.features?.airport_distance || null,
-                hasWifi: hotel.features?.wi_fi === 'FREE' || hotel.features?.wi_fi === 'PAID',
-                hasPool: hotel.features?.pool || false,
-                hasKidsClub: hotel.features?.kids_club || false,
-                hasFitness: hotel.features?.fitness || false,
-                hasAquapark: hotel.features?.aquapark || false,
-                
-                // Координаты
-                latitude: hotel.lat || null,
-                longitude: hotel.long || null,
-                
-                // Дополнительная информация
-                instantConfirm: hotelData.extras?.instant_confirm || false,
-                isHot: hotelData.extras?.cheap || false,
-                pricePerNight: hotelData.price_per_night || Math.round(hotelPrice / nights),
-                availability: hotelData.availability?.hotel || 'available',
-                
-                // Оценка соответствия запросу (можно улучшить алгоритм)
-                matchScore: calculateMatchScore(hotel, hotelData, params),
-              };
-              
-              result.push(tour);
-            }
-          } catch (error) {
-            console.error(`Ошибка при обработке отеля: ${error}`);
-            continue;
-          }
-        }
-        
-        console.log(`Level.Travel: обработано туров: ${result.length}`);
-        return result;
-      } catch (error) {
-        const errorMessage = (error as Error).message || 'Unknown error';
-        console.error(`Level.Travel API error:`, errorMessage);
-        const err = new Error(`Failed to fetch Level.Travel API results: ${errorMessage}`) as ProviderError;
-        err.provider = "Level.Travel";
-        throw err;
-      }
+    // Подготавливаем данные
+    const apiKey = process.env.LEVELTRAVEL_API_KEY || process.env.LEVEL_TRAVEL_API_KEY;
+    if (!apiKey) {
+      throw new Error('Level.Travel API key is not set');
+    }
+    const headers = createLevelTravelHeaders(apiKey);
+
+    let startDate: Date, endDate: Date, nights: number;
+    if (params.dateType === 'fixed' && params.startDate && params.endDate) {
+      startDate = new Date(params.startDate);
+      endDate = new Date(params.endDate);
+      const timeDiff = endDate.getTime() - startDate.getTime();
+      nights = Math.max(1, Math.round(timeDiff / (1000 * 3600 * 24)));
+    } else if (params.dateType === 'flexible' && params.flexibleMonth && params.tripDuration) {
+      const now = new Date();
+      startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 14);
+      nights = params.tripDuration;
+      endDate = new Date(startDate);
+      endDate.setDate(endDate.getDate() + nights);
+    } else {
+      startDate = new Date();
+      startDate.setDate(startDate.getDate() + 14);
+      nights = params.nights || 7;
+      endDate = new Date(startDate);
+      endDate.setDate(endDate.getDate() + nights);
+    }
+
+    const destinationLower = (params.destination || 'Турция').toLowerCase();
+    let countryCode = 'TR';
+    for (const name of Object.keys(COUNTRY_CODES)) {
+      if (destinationLower.includes(name)) { countryCode = COUNTRY_CODES[name]; break; }
+    }
+
+    const departureCity = params.departureCity || 'Москва';
+    const departureCityMap: Record<string, string> = {
+      'Москва': 'Moscow',
+      'Санкт-Петербург': 'Saint Petersburg',
+      'Екатеринбург': 'Ekaterinburg',
+      'Новосибирск': 'Novosibirsk',
+      'Казань': 'Kazan',
+      'Нижний Новгород': 'Nizhny Novgorod',
+      'Самара': 'Samara',
+      'Краснодар': 'Krasnodar'
+    };
+    const fromCity = departureCityMap[departureCity] || 'Moscow';
+
+    const requestData = {
+      from_city: fromCity,
+      to_country: countryCode,
+      adults: params.adults || 2,
+      start_date: formatDate(startDate),
+      nights: `${nights}..${nights + 2}`,
+      ...(params.children ? { kids: params.children } : {}),
+      ...(params.childrenAges?.length ? { kids_ages: params.childrenAges } : {}),
+      ...(params.budget ? { price_max: params.budget } : {})
+    } as const;
+
+    const searchUrl = `${LEVEL_TRAVEL_API_URL}/search/enqueue`;
+
+    let enqueueResponse;
+    try {
+      enqueueResponse = await axios.get(`${searchUrl}?${new URLSearchParams(requestData as any).toString()}`, { headers, timeout: 15000 });
     } catch (error) {
-      // Обрабатываем ошибки при подготовке параметров
-      const errorMessage = (error as Error).message || 'Неизвестная ошибка';
-      console.error(`Level.Travel API preparation error:`, errorMessage);
-      const err = new Error(`Error calling Level.Travel API: ${errorMessage}`) as ProviderError;
-      err.provider = "Level.Travel";
+      if (axios.isAxiosError(error) && error.response?.status === 405) {
+        enqueueResponse = await axios.post(searchUrl, requestData, { headers, timeout: 15000 });
+      } else {
+        throw error;
+      }
+    }
+
+    if (enqueueResponse.status !== 200 || !enqueueResponse.data?.request_id) {
+      const err = new Error(`Ошибка при запуске поиска туров`) as ProviderError;
+      err.provider = 'Level.Travel';
       throw err;
     }
+
+    const requestId = enqueueResponse.data.request_id;
+    const statusUrl = `${LEVEL_TRAVEL_API_URL}/search/status?request_id=${requestId}&show_size=true`;
+
+    let retries = 0;
+    const maxRetries = 5;
+    let hotelsResponse: any;
+    while (retries < maxRetries) {
+      if (retries > 0) await new Promise(r => setTimeout(r, 2000 * retries));
+      const statusResponse = await axios.get(statusUrl, { headers, timeout: 15000 });
+      const completeness = statusResponse.data?.completeness || 0;
+      const size = statusResponse.data?.size || 0;
+      const operatorStatuses = statusResponse.data?.status || {};
+      const allCompleted = Object.values(operatorStatuses).every((s: any) => ['completed', 'cached', 'skipped', 'no_results', 'failed', 'all_filtered'].includes(String(s)));
+      const partialResults = (completeness > 30 && size > 0) || retries >= 3;
+      if (allCompleted || partialResults) { hotelsResponse = statusResponse; break; }
+      retries++;
+    }
+
+    if (!hotelsResponse) {
+      const err = new Error('Не удалось получить результаты поиска туров: превышено время ожидания') as ProviderError;
+      err.provider = 'Level.Travel';
+      throw err;
+    }
+
+    const hotelsUrl = `${LEVEL_TRAVEL_API_URL}/search/get_grouped_hotels?request_id=${requestId}`;
+    const hotelsListResponse = await axios.get(hotelsUrl, { headers, timeout: 20000 });
+    if (!hotelsListResponse.data?.success) {
+      const err = new Error(`Ошибка при получении списка отелей`) as ProviderError;
+      err.provider = 'Level.Travel';
+      throw err;
+    }
+
+    const result: TourData[] = [];
+    const hotelsList = hotelsListResponse.data.hotels || [];
+    for (const hotelData of hotelsList) {
+      try {
+        const hotel = hotelData.hotel;
+        if (!hotel?.id) continue;
+        const hotelId = hotel.id;
+        const hotelName = hotel.name;
+        const hotelStars = hotel.stars || 0;
+        const hotelPrice = hotelData.min_price || 0;
+        const hotelOldPrice = hotelData.extras?.previous_price || null;
+        const hotelRating = hotel.rating || null;
+        const hotelReviews = hotel.reviews_count || 0;
+        const images: string[] = [];
+        if (hotel.image?.full_size) images.push(hotel.image.full_size);
+        if (hotel.images && Array.isArray(hotel.images)) {
+          hotel.images.forEach((img: any) => { if (img.x500) images.push(img.x500); });
+        }
+        if (hotelId && hotelName && hotelPrice > 0) {
+          const tour: TourData = {
+            provider: 'leveltravel',
+            externalId: `lt-${hotelId}`,
+            title: `${hotelName} ${hotelStars > 0 ? hotelStars + '★' : ''}`.trim(),
+            description: hotel.desc || '',
+            destination: hotel.city || hotel.region_name || (params.destination as any),
+            hotel: hotelName,
+            hotelStars,
+            price: hotelPrice,
+            priceOld: hotelOldPrice || undefined,
+            rating: hotelRating || undefined,
+            startDate,
+            endDate,
+            nights,
+            roomType: 'Стандартный номер',
+            mealType: parseMealType(hotelData.pansion_prices ? Object.keys(hotelData.pansion_prices)[0] : ''),
+            link: createReferralLink(hotelId, {
+              start_date: startDate.toISOString().split('T')[0],
+              nights,
+              adults: params.adults || 2,
+              kids: params.children || 0
+            }),
+            image: images[0] || undefined,
+            images,
+            departureCity: params.departureCity || 'Москва',
+            arrivalCity: hotel.city || (params.destination as any),
+            tourOperatorId: hotelData.operators?.[0] || undefined,
+            beachDistance: hotel.features?.beach_distance || undefined,
+            beachType: hotel.features?.beach_type || undefined,
+            beachSurface: hotel.features?.beach_surface || undefined,
+            airportDistance: hotel.features?.airport_distance || undefined,
+            hasWifi: hotel.features?.wi_f_i === 'FREE' || hotel.features?.wi_fi === 'PAID',
+            hasPool: hotel.features?.pool || false,
+            hasKidsClub: hotel.features?.kids_club || false,
+            hasFitness: hotel.features?.fitness || false,
+            hasAquapark: hotel.features?.aquapark || false,
+            latitude: hotel.lat || undefined,
+            longitude: hotel.long || undefined,
+            instantConfirm: hotelData.extras?.instant_confirm || false,
+            isHot: hotelData.extras?.cheap || false,
+            pricePerNight: hotelData.price_per_night || Math.round(hotelPrice / Math.max(1, nights)),
+            availability: hotelData.availability?.hotel || 'available',
+            matchScore: calculateMatchScore(hotel, hotelData, params)
+          };
+          result.push(tour);
+        }
+      } catch (e) {
+        logger.warn('Level.Travel: error processing hotel entry');
+        continue;
+      }
+    }
+
+    logger.info(`Level.Travel: collected ${result.length} tours`);
+    return result;
   } catch (error) {
-    // Обрабатываем все остальные ошибки
     const errorMessage = (error as Error).message || 'Неизвестная ошибка';
-    console.error(`Level.Travel API general error:`, errorMessage);
+    logger.error('Level.Travel API error', { message: errorMessage });
     const err = new Error(`Error fetching tours from Level.Travel: ${errorMessage}`) as ProviderError;
-    err.provider = "Level.Travel";
+    err.provider = 'Level.Travel';
     throw err;
   }
 }
@@ -986,45 +692,18 @@ function generateAffiliateLink(
  * Расчет оценки соответствия
  */
 function calculateMatchScore(hotel: any, hotelData: any, params: TourSearchParams): number {
-  let score = 50; // Базовая оценка
-  
-  // Увеличиваем оценку за хороший рейтинг
-  if (hotel.rating) {
-    score += hotel.rating * 2;
-  }
-  
-  // Увеличиваем оценку за количество отзывов
-  if (hotel.reviews_count > 10) {
-    score += 5;
-  }
-  if (hotel.reviews_count > 50) {
-    score += 5;
-  }
-  
-  // Учитываем звездность
-  if (hotel.stars >= 4) {
-    score += 10;
-  }
-  if (hotel.stars === 5) {
-    score += 10;
-  }
-  
-  // Учитываем удобства для семей с детьми
-  if (params.children && params.children > 0) {
+  let score = 50;
+  if (hotel.rating) score += hotel.rating * 2;
+  if (hotel.reviews_count > 10) score += 5;
+  if (hotel.reviews_count > 50) score += 5;
+  if (hotel.stars >= 4) score += 10;
+  if (hotel.stars === 5) score += 10;
+  if ((params.children || 0) > 0) {
     if (hotel.features?.kids_club) score += 10;
     if (hotel.features?.kids_pool) score += 5;
     if (hotel.features?.kids_menu) score += 5;
   }
-  
-  // Учитываем близость к морю
-  if (hotel.features?.beach_distance && hotel.features.beach_distance < 500) {
-    score += 10;
-  }
-  
-  // Учитываем мгновенное подтверждение
-  if (hotelData.extras?.instant_confirm) {
-    score += 5;
-  }
-  
+  if (hotel.features?.beach_distance && hotel.features.beach_distance < 500) score += 10;
+  if (hotelData.extras?.instant_confirm) score += 5;
   return Math.min(100, score);
 }
