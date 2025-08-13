@@ -123,7 +123,12 @@ export function setupSecurity(app: Express) {
 
   // CSRF protection for non-API routes
   app.use((req: Request, res: Response, next: NextFunction) => {
-    if (req.path.startsWith('/api/webhook') || req.path.startsWith('/api/telegram')) {
+    if (req.path.startsWith('/api/telegram') || req.path.startsWith('/api/webhook')) {
+      return next();
+    }
+
+    // Для чистого JSON API под JWT можно отключить CSRF
+    if (req.path.startsWith('/api')) {
       return next();
     }
 

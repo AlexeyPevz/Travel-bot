@@ -1,6 +1,7 @@
 import { fetchToursFromTravelata } from './travelata';
 import { fetchToursFromSletat } from './sletat';
 import { fetchToursFromLevelTravel } from './leveltravel';
+import { LevelTravelProvider } from './leveltravel/provider';
 
 // Provider interface
 export interface TourProvider {
@@ -80,8 +81,23 @@ export interface TourData {
   matchScore?: number;  // Добавляем поле для сортировки по соответствию
 }
 
+// Instantiate providers using BaseProvider where possible
+const levelTravel = new LevelTravelProvider({
+  enabled: true,
+  timeout: 30000,
+  retryAttempts: 3,
+  cacheTimeout: 900,
+  name: 'leveltravel',
+  type: 0 as any, // unused, already defined in provider
+  priority: 10,
+});
+
 // Register all tour providers
 export const tourProviders: TourProvider[] = [
+  {
+    name: 'level.travel',
+    fetchTours: (params) => levelTravel.performSearch(params) as any
+  },
   {
     name: 'travelata',
     fetchTours: fetchToursFromTravelata
@@ -89,10 +105,6 @@ export const tourProviders: TourProvider[] = [
   {
     name: 'sletat',
     fetchTours: fetchToursFromSletat
-  },
-  {
-    name: 'level.travel',
-    fetchTours: fetchToursFromLevelTravel
   }
 ];
 
@@ -131,11 +143,8 @@ export async function fetchToursFromAllProviders(params: TourSearchParams): Prom
       const { dbService } = await import('../services/db');
       
       if (tours.length > 0) {
-        console.log(`Сохраняем ${tours.length} туров в базу данных...`);
-        
         // Подготовим туры для сохранения, добавляя недостающие поля
         const toursForDb = tours.map((tour, index) => {
-          // Готовим поля из схемы
           return {
             provider: tour.provider,
             externalId: tour.externalId?.toString() || `ext-${Date.now()}-${index}`,
@@ -155,19 +164,14 @@ export async function fetchToursFromAllProviders(params: TourSearchParams): Prom
             beachLine: tour.beachLine || null,
             link: tour.link,
             image: tour.image || null,
-            matchScore: 0, // Начальный score
+            matchScore: 0,
             createdAt: new Date(),
             updatedAt: new Date()
           };
         });
         
-        // Сохраняем пакетом
         const savedTours = await dbService.saveTourBatch(toursForDb);
-        console.log(`Успешно сохранено ${savedTours.length} туров в базу данных`);
-        
-        // Возвращаем сохраненные туры с ID из базы данных
         if (savedTours.length > 0) {
-          // Обновляем оригинальные объекты туров ID из базы данных
           savedTours.forEach((savedTour, index) => {
             if (index < tours.length) {
               tours[index].id = savedTour.id;
@@ -177,7 +181,6 @@ export async function fetchToursFromAllProviders(params: TourSearchParams): Prom
       }
     } catch (dbError) {
       console.error('Ошибка при сохранении туров в базу данных:', dbError);
-      // Продолжаем выполнение, даже если сохранение не удалось
     }
     
     return tours;
