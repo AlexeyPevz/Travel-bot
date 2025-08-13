@@ -487,12 +487,11 @@ export async function fetchHotelDetails(hotelId: string | number): Promise<any> 
  */
 async function testLevelTravelAPI(): Promise<boolean> {
   try {
-    // Для теста просто временно возвращаем true, чтобы проверить остальную часть функциональности
-    // Так как известно, что ключ API работал ранее
-    console.log("ВНИМАНИЕ: Пропуск проверки API Level.Travel для теста");
-    return true;
-    
-    /*
+    // В тестовой и дев-среде не делаем внешний пинг, считаем API доступным
+    if (process.env.NODE_ENV === 'test' || process.env.NODE_ENV === 'development') {
+      return true;
+    }
+
     // Получаем API ключ
     const apiKey = process.env.LEVELTRAVEL_API_KEY;
     if (!apiKey) {
@@ -503,33 +502,18 @@ async function testLevelTravelAPI(): Promise<boolean> {
     // Создаем заголовки авторизации
     const headers = createLevelTravelHeaders(apiKey);
     
-    // Выводим информацию о ключе API (маскируем для безопасности)
-    const maskedKey = apiKey.substring(0, 4) + "..." + apiKey.substring(apiKey.length - 4);
-    console.log(`Используется API ключ: ${maskedKey}`);
-    console.log(`Заголовки для тестового запроса:`, headers);
-    
-    // Пробуем получить список стран - простой запрос для проверки подключения
+    // Пробуем получить список стран - легкий запрос для проверки подключения
     const url = `${LEVEL_TRAVEL_API_URL}/references/countries`;
-    console.log(`Тестовый запрос к API: ${url}`);
+    const response = await axios.get(url, { headers, timeout: 7000 });
     
-    const response = await axios.get(url, { headers });
-    
-    console.log(`Тестовый запрос - статус ответа: ${response.status}`);
-    console.log(`Тестовый запрос - данные получены:`, JSON.stringify(response.data).substring(0, 200) + "...");
-    
-    // Проверяем, что в ответе есть поле success и оно равно true
     if (response.status === 200 && response.data) {
-      // Даже если нет поля success, но есть массив countries, значит API работает
       if (response.data.success === true || (response.data.countries && Array.isArray(response.data.countries))) {
-        console.log("Level.Travel API успешно подключено!");
         return true;
       }
     }
     
-    // В случае неуспешного ответа
-    console.error(`Level.Travel API error: Неправильный формат ответа: ${JSON.stringify(response.data)}`);
+    console.error(`Level.Travel API ping failed: ${JSON.stringify(response.data)}`);
     return false;
-    */
   } catch (error) {
     console.error("Level.Travel API connection error:", (error as Error).message);
     return false;

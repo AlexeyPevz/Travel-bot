@@ -81,7 +81,7 @@ export { server };
   });
 
   // Register routes (non-blocking bot/monitoring inside)
-  await registerRoutes(app);
+  await registerRoutes(app, server);
 
   // Error handler should be last
   const { errorHandler } = await import("./middleware/errorHandler");
