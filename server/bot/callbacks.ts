@@ -12,7 +12,9 @@ import { handleOnboardingStep, handleSkipPreferences, handleVacationTypeCallback
 import { MESSAGES } from './messages/templates';
 import logger from '../utils/logger';
 import { eq } from 'drizzle-orm';
-import { groupProfiles, searchTours } from '../db/schema';
+import { db } from '../../db';
+import { groupProfiles, tours } from '@shared/schema';
+import { searchTours } from '../providers';
 
 export async function handleCallbackQuery(
   bot: TelegramBot,

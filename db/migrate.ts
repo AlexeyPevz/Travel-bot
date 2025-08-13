@@ -2,6 +2,7 @@ import { drizzle } from 'drizzle-orm/node-postgres';
 import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import { Pool } from 'pg';
 import * as path from 'path';
+import { fileURLToPath } from 'url';
 import logger from '../server/utils/logger';
 
 async function runMigrations() {
@@ -18,10 +19,14 @@ async function runMigrations() {
   const db = drizzle(pool);
 
   try {
-    // Run migrations
-    await migrate(db, {
-      migrationsFolder: path.join(__dirname, 'migrations'),
-    });
+    // Resolve migrations folder relative to the repo path (works in dist and src)
+    const currentDir = path.dirname(fileURLToPath(import.meta.url));
+    // Prefer dist-copied migrations; fallback to source path
+    const distMigrations = path.join(currentDir, 'migrations');
+    const srcMigrations = path.resolve(currentDir, '../../db/migrations');
+    const migrationsFolder = distMigrations;
+
+    await migrate(db, { migrationsFolder });
 
     logger.info('Migrations completed successfully');
   } catch (error) {
@@ -32,8 +37,18 @@ async function runMigrations() {
   }
 }
 
-// Run migrations if called directly
-if (require.main === module) {
+// Run migrations if executed directly
+const isDirectRun = (() => {
+  try {
+    const thisFile = fileURLToPath(import.meta.url);
+    const invoked = process.argv[1] ? path.resolve(process.argv[1]) : '';
+    return invoked && path.resolve(thisFile) === invoked;
+  } catch {
+    return false;
+  }
+})();
+
+if (isDirectRun) {
   runMigrations()
     .then(() => {
       logger.info('Migration script completed');

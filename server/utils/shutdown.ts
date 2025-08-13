@@ -62,12 +62,16 @@ class GracefulShutdown {
     // Handle uncaught errors
     process.on('uncaughtException', async (error) => {
       logger.error('Uncaught exception:', error);
-      await this.shutdown(1);
+      if (process.env.NODE_ENV === 'production') {
+        await this.shutdown(1);
+      }
     });
 
     process.on('unhandledRejection', async (reason, promise) => {
       logger.error('Unhandled rejection at:', promise, 'reason:', reason);
-      await this.shutdown(1);
+      if (process.env.NODE_ENV === 'production') {
+        await this.shutdown(1);
+      }
     });
   }
 
@@ -86,7 +90,9 @@ class GracefulShutdown {
     // Set a timeout for shutdown
     const forceExitTimeout = setTimeout(() => {
       logger.error('Graceful shutdown timeout, forcing exit');
-      process.exit(exitCode);
+      if (process.env.NODE_ENV === 'production') {
+        process.exit(exitCode);
+      }
     }, this.shutdownTimeout);
 
     try {
@@ -114,11 +120,15 @@ class GracefulShutdown {
 
       clearTimeout(forceExitTimeout);
       logger.info('Graceful shutdown completed');
-      process.exit(exitCode);
+      if (process.env.NODE_ENV === 'production') {
+        process.exit(exitCode);
+      }
     } catch (error) {
       logger.error('Error during shutdown:', error);
       clearTimeout(forceExitTimeout);
-      process.exit(1);
+      if (process.env.NODE_ENV === 'production') {
+        process.exit(1);
+      }
     }
   }
 
