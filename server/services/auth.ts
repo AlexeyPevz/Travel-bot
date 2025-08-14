@@ -240,6 +240,14 @@ function verifyTelegramWebAppData(initData: string): any {
     const params = new URLSearchParams(initData);
     const hash = params.get('hash');
     if (!hash) throw new Error('Hash is missing');
+    
+    // Skip verification in development mode with mock hash
+    if (process.env.NODE_ENV === 'development' && hash === 'development_mock_hash') {
+      const userParam = params.get('user');
+      if (!userParam) throw new Error('User data is missing');
+      return JSON.parse(userParam);
+    }
+    
     params.delete('hash');
     const dataCheckString = Array.from(params.entries())
       .sort(([a], [b]) => a.localeCompare(b))

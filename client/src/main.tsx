@@ -19,20 +19,25 @@ declare global {
 if (import.meta.env.DEV && !(window as any)?.Telegram?.WebApp) {
   // Polyfill for development outside Telegram
   // In production this would be provided by Telegram Mini App environment
+  // Generate mock initData for development
+  const mockUser = {
+    id: 123456789,
+    first_name: "Test",
+    last_name: "User",
+    username: "testuser",
+    language_code: "ru"
+  };
+  const mockAuthDate = Math.floor(Date.now() / 1000);
+  const mockInitData = `user=${encodeURIComponent(JSON.stringify(mockUser))}&auth_date=${mockAuthDate}&hash=development_mock_hash`;
+  
   window.Telegram = {
     WebApp: {
-      initData: "",
+      initData: mockInitData,
       initDataUnsafe: {
         // Mock user data for development
-        user: {
-          id: 123456789,
-          first_name: "Test",
-          last_name: "User",
-          username: "testuser",
-          language_code: "ru"
-        },
-        auth_date: Math.floor(Date.now() / 1000),
-        hash: "mock_hash"
+        user: mockUser,
+        auth_date: mockAuthDate,
+        hash: "development_mock_hash"
       },
       ready: () => console.log("WebApp ready called"),
       expand: () => console.log("WebApp expand called"),
