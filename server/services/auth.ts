@@ -127,8 +127,11 @@ export async function refreshTokens(refreshToken: string): Promise<{
   refreshToken: string;
   expiresIn: number;
 }> {
-  const JWT = getJwtConfig();
-  try {
+  if (inFlightRefresh.has(refreshToken)) {
+    throw new AuthenticationError('Refresh token invalidated or not found');
+  }
+  const task = (async () => {
+    const JWT = getJwtConfig();
     const decoded = jwt.verify(refreshToken, JWT.REFRESH_TOKEN_SECRET, {
       issuer: JWT.ISSUER,
       audience: JWT.AUDIENCE
@@ -155,14 +158,12 @@ export async function refreshTokens(refreshToken: string): Promise<{
       telegramId: decoded.telegramId,
       username: decoded.username
     });
-  } catch (error) {
-    if ((error as Error).message === 'TokenExpiredError') {
-      throw new Error('Refresh token expired');
-    }
-    if (error instanceof jwt.JsonWebTokenError) {
-      throw new Error('Invalid refresh token');
-    }
-    throw error;
+  })();
+  inFlightRefresh.set(refreshToken, task);
+  try {
+    return await task;
+  } finally {
+    inFlightRefresh.delete(refreshToken);
   }
 }
 
@@ -195,6 +196,8 @@ export async function isUserBlacklisted(userId: string): Promise<boolean> {
   const value = await cache.get(`blacklist:${userId}`);
   return !!value;
 }
+
+const inFlightRefresh = new Map<string, Promise<{ accessToken: string; refreshToken: string; expiresIn: number }>>();
 
 export function decodeToken(token: string): DecodedToken | null {
   try { return jwt.decode(token) as DecodedToken; } catch { return null; }
