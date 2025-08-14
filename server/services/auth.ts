@@ -127,43 +127,48 @@ export async function refreshTokens(refreshToken: string): Promise<{
   refreshToken: string;
   expiresIn: number;
 }> {
-  if (inFlightRefresh.has(refreshToken)) {
+  if (refreshBusy.has(refreshToken)) {
     throw new AuthenticationError('Refresh token invalidated or not found');
   }
-  const task = (async () => {
-    const JWT = getJwtConfig();
-    const decoded = jwt.verify(refreshToken, JWT.REFRESH_TOKEN_SECRET, {
-      issuer: JWT.ISSUER,
-      audience: JWT.AUDIENCE
-    }) as DecodedToken;
-
-    if (decoded.type !== 'refresh') {
-      throw new AuthenticationError('Invalid token type');
-    }
-
-    const exists = await cache.get(`refresh_token:${decoded.userId}:${refreshToken}`);
-    if (!exists) {
+  refreshBusy.add(refreshToken);
+  try {
+    if (inFlightRefresh.has(refreshToken)) {
       throw new AuthenticationError('Refresh token invalidated or not found');
     }
+    const task = (async () => {
+      const JWT = getJwtConfig();
+      const decoded = jwt.verify(refreshToken, JWT.REFRESH_TOKEN_SECRET, {
+        issuer: JWT.ISSUER,
+        audience: JWT.AUDIENCE
+      }) as DecodedToken;
 
-    await cache.del(`refresh_token:${decoded.userId}:${refreshToken}`);
+      if (decoded.type !== 'refresh') {
+        throw new AuthenticationError('Invalid token type');
+      }
 
-    const userExists = await checkUserExists(decoded.userId);
-    if (!userExists) {
-      throw new AuthenticationError('User not found');
-    }
+      const exists = await cache.get(`refresh_token:${decoded.userId}:${refreshToken}`);
+      if (!exists) {
+        throw new AuthenticationError('Refresh token invalidated or not found');
+      }
 
-    return generateTokens({
-      userId: decoded.userId,
-      telegramId: decoded.telegramId,
-      username: decoded.username
-    });
-  })();
-  inFlightRefresh.set(refreshToken, task);
-  try {
+      await cache.del(`refresh_token:${decoded.userId}:${refreshToken}`);
+
+      const userExists = await checkUserExists(decoded.userId);
+      if (!userExists) {
+        throw new AuthenticationError('User not found');
+      }
+
+      return generateTokens({
+        userId: decoded.userId,
+        telegramId: decoded.telegramId,
+        username: decoded.username
+      });
+    })();
+    inFlightRefresh.set(refreshToken, task);
     return await task;
   } finally {
     inFlightRefresh.delete(refreshToken);
+    refreshBusy.delete(refreshToken);
   }
 }
 
@@ -198,6 +203,7 @@ export async function isUserBlacklisted(userId: string): Promise<boolean> {
 }
 
 const inFlightRefresh = new Map<string, Promise<{ accessToken: string; refreshToken: string; expiresIn: number }>>();
+const refreshBusy = new Set<string>();
 
 export function decodeToken(token: string): DecodedToken | null {
   try { return jwt.decode(token) as DecodedToken; } catch { return null; }
