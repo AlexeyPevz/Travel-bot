@@ -27,9 +27,16 @@ export default function ProfilePage() {
   // Используем initialUserId как начальное значение
   const [activeUserId, setActiveUserId] = useState<string>(initialUserId);
 
+  // Если Telegram userId стал доступен после инициализации — переключаемся на него
+  useEffect(() => {
+    if (telegramUserId && telegramUserId !== activeUserId) {
+      setActiveUserId(telegramUserId);
+    }
+  }, [telegramUserId]);
+
   // Check if user already has a profile
   const { data: profile, isLoading, isError, error, refetch } = useQuery({
-    queryKey: [`/api/profile/${activeUserId}`],
+    queryKey: [`/api/v1/profile/${activeUserId}`],
     enabled: true,
     retry: 1,
   });

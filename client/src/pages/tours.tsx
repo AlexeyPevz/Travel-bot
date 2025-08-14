@@ -44,7 +44,7 @@ export default function ToursPage() {
 
   // Check if user has a profile
   const { data: profile, isLoading: isProfileLoading } = useQuery({
-    queryKey: userId ? [`/api/profile/${userId}`] : null,
+    queryKey: userId ? [`/api/v1/profile/${userId}`] : null,
     enabled: !!userId,
   });
 

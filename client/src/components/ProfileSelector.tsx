@@ -28,7 +28,7 @@ export default function ProfileSelector({ onSelectProfile, defaultUserId }: Prof
 
   // Fetch current user's profile directly
   const { data, isLoading, isError } = useQuery({
-    queryKey: effectiveUserId ? [`/api/profile/${effectiveUserId}`] : null,
+    queryKey: effectiveUserId ? [`/api/v1/profile/${effectiveUserId}`] : null,
     enabled: !!effectiveUserId,
   });
 

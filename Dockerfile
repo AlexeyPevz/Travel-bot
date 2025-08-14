@@ -8,6 +8,8 @@ COPY package*.json ./
 
 # Install dependencies
 RUN npm ci
+RUN npm install -g tsup
+RUN npm install -g tsup
 
 # Copy source code
 COPY . .
@@ -33,8 +35,8 @@ RUN npm ci --production && npm cache clean --force
 
 # Copy built application from builder
 COPY --from=builder --chown=nodejs:nodejs /app/dist ./dist
-COPY --from=builder --chown=nodejs:nodejs /app/client/dist ./client/dist
-COPY --from=builder --chown=nodejs:nodejs /app/drizzle ./drizzle
+COPY --from=builder --chown=nodejs:nodejs /app/dist/public ./client/dist
+COPY --from=builder --chown=nodejs:nodejs /app/db/migrations ./db/migrations
 COPY --from=builder --chown=nodejs:nodejs /app/shared ./shared
 
 # Create logs directory

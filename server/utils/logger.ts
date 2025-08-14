@@ -34,27 +34,20 @@ try {
   // and proceed without throwing to avoid crashing the app at startup
 }
 
-// Define log format
-const format = winston.format.combine(
+// Define base log format (no color, used for files)
+const baseFormat = winston.format.combine(
   winston.format.timestamp({ format: 'YYYY-MM-DD HH:mm:ss:ms' }),
-  winston.format.colorize({ all: true }),
   winston.format.printf(
     (info) => {
       const { timestamp, level, message, correlationId, ...rest } = info;
       let log = `${timestamp} ${level}: `;
-      
-      // Add correlation ID if present
       if (correlationId) {
         log += `[${correlationId}] `;
       }
-      
       log += message;
-      
-      // Add additional fields if present
       if (Object.keys(rest).length > 0) {
         log += ` ${JSON.stringify(rest)}`;
       }
-      
       return log;
     }
   ),
@@ -62,8 +55,13 @@ const format = winston.format.combine(
 
 // Define transports
 const transports: winston.transport[] = [
-  // Console transport
-  new winston.transports.Console(),
+  // Console transport with colorized output
+  new winston.transports.Console({
+    format: winston.format.combine(
+      winston.format.colorize({ all: true }),
+      baseFormat
+    )
+  }),
 ];
 
 // Attempt to add file transports safely
@@ -73,6 +71,7 @@ try {
     level: 'error',
     maxsize: 5242880, // 5MB
     maxFiles: 5,
+    format: baseFormat,
   });
   errorFile.on('error', (err) => {
     // eslint-disable-next-line no-console
@@ -84,6 +83,7 @@ try {
     filename: path.join(logsDir, 'combined.log'),
     maxsize: 5242880, // 5MB
     maxFiles: 5,
+    format: baseFormat,
   });
   combinedFile.on('error', (err) => {
     // eslint-disable-next-line no-console
@@ -99,7 +99,7 @@ try {
 const logger = winston.createLogger({
   level: process.env.LOG_LEVEL || 'info',
   levels,
-  format,
+  format: baseFormat,
   transports,
 });
 

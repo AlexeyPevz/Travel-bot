@@ -61,61 +61,13 @@ export async function handleCallbackQuery(
 
     // Search tours
     if (data === 'search_tours') {
-      const profile = await storage.getProfile(userId);
-      
-      if (!profile) {
-        await bot.sendMessage(
-          chatId,
-          MESSAGES.errors.noProfile,
-          {
-            reply_markup: {
-              inline_keyboard: [[
-                { text: '📝 Заполнить анкету', callback_data: 'start_questionnaire' }
-              ]]
-            }
-          }
-        );
-      } else {
-        await bot.sendMessage(
-          chatId,
-          MESSAGES.search.searching
-        );
-        // TODO: Implement tour search
-        
-        // Запускаем поиск туров для группы
-        const groupProfile = await db.select()
-          .from(groupProfiles)
-          .where(eq(groupProfiles.chatId, chatId.toString()))
-          .limit(1);
-          
-        if (groupProfile[0]) {
-          const searchParams = {
-            countries: groupProfile[0].countries || [],
-            budget: groupProfile[0].budget || 100000,
-            startDate: groupProfile[0].startDate || new Date(),
-            endDate: groupProfile[0].endDate || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
-            duration: groupProfile[0].tripDuration || 7,
-            adults: groupProfile[0].adults || 2,
-            children: groupProfile[0].children || 0
-          };
-          
-          // Выполняем поиск туров
-          const tours = await searchTours(searchParams);
-          
-          if (tours.length > 0) {
-            await bot.sendMessage(chatId, 
-              `🔍 Найдено ${tours.length} туров по вашим параметрам!\n\n` +
-              `Используйте команду /tours для просмотра результатов.`
-            );
-          } else {
-            await bot.sendMessage(chatId, 
-              '😔 К сожалению, туры по заданным параметрам не найдены.\n' +
-              'Попробуйте изменить критерии поиска.'
-            );
-          }
-        }
+      // Запускаем пошаговый сценарий поиска (FSM)
+      try {
+        const { startTourSearchFlow } = await import('./commands/searchFlow');
+        await startTourSearchFlow(bot, chatId, userId, '');
+      } catch (e) {
+        await bot.sendMessage(chatId, 'Не удалось запустить поиск. Попробуйте ещё раз.');
       }
-      
       await bot.answerCallbackQuery(callbackQuery.id);
       return;
     }

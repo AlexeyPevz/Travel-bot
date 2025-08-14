@@ -28,6 +28,7 @@ interface FormValues {
   name: string;
   vacationType?: string;
   countries?: string[];
+  departureCity?: string;
   destination: string;
   dateType: 'fixed' | 'flexible';
   startDate?: Date;
@@ -50,6 +51,7 @@ const ProfileForm = ({ existingProfile, userId, onSuccess }: ProfileFormProps) =
       name: existingProfile?.name || telegramUser?.first_name || '',
       vacationType: existingProfile?.vacationType || 'beach',
       countries: existingProfile?.countries || [],
+      departureCity: (existingProfile as any)?.departureCity || 'Москва',
       destination: existingProfile?.destination || '',
       dateType: existingProfile?.dateType || 'fixed',
       startDate: existingProfile?.startDate ? new Date(existingProfile.startDate) : undefined,
@@ -142,7 +144,7 @@ const ProfileForm = ({ existingProfile, userId, onSuccess }: ProfileFormProps) =
       console.log('Submitting profile data:', profileData);
       
       // Submit the form
-      const response = await apiRequest('POST', '/api/submit-profile', profileData);
+      const response = await apiRequest('POST', '/api/profile', profileData);
       console.log('Profile update response:', response);
       
       toast({
@@ -154,7 +156,7 @@ const ProfileForm = ({ existingProfile, userId, onSuccess }: ProfileFormProps) =
       // Инвалидируем кэш, чтобы обновить данные профиля
       import('@/lib/queryClient').then(module => {
         const queryClient = module.queryClient;
-        queryClient.invalidateQueries({ queryKey: [`/api/profile/${userId}`] });
+        queryClient.invalidateQueries({ queryKey: [`/api/v1/profile/${userId}`] });
       });
       
       onSuccess();
@@ -229,6 +231,27 @@ const ProfileForm = ({ existingProfile, userId, onSuccess }: ProfileFormProps) =
                 setValue('countries', countriesArray);
               }}
             />
+          </div>
+
+          {/* Departure City Field */}
+          <div className="mb-4">
+            <Label htmlFor="departureCity" className="block text-sm font-medium mb-1">Город вылета</Label>
+            <Select 
+              defaultValue={watch('departureCity') || 'Москва'}
+              onValueChange={(value) => setValue('departureCity', value)}
+            >
+              <SelectTrigger id="departureCity" className="w-full">
+                <SelectValue placeholder="Выберите город вылета" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="Москва">Москва</SelectItem>
+                <SelectItem value="Санкт-Петербург">Санкт-Петербург</SelectItem>
+                <SelectItem value="Казань">Казань</SelectItem>
+                <SelectItem value="Екатеринбург">Екатеринбург</SelectItem>
+                <SelectItem value="Новосибирск">Новосибирск</SelectItem>
+                <SelectItem value="Ростов-на-Дону">Ростов-на-Дону</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
           
           {/* Destination Field */}

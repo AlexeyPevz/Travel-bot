@@ -10,7 +10,10 @@ import {
   handleChildrenCount,
   handleChildrenAges,
   handleChildrenInfo,
-  performTourSearch
+    handleTripDuration,
+    handleBudget,
+  performTourSearch,
+  startTourSearchFlow
 } from './commands/searchFlow';
 import { handleOnboardingStep, handleSkipPreferences } from './commands/onboarding';
 
@@ -155,6 +158,24 @@ async function handleSearchCallbacks(
   await bot.answerCallbackQuery(callbackQuery.id);
   
   switch (data) {
+    case 'search_tours':
+      // Перед стартом поиска проверим, что профиль существует, иначе предложим заполнить
+      try {
+        const { db } = await import('../../db');
+        const { profiles } = await import('@shared/schema');
+        const { eq } = await import('drizzle-orm');
+        const [profile] = await db.select().from(profiles).where(eq(profiles.userId, userId)).limit(1);
+        if (!profile) {
+          await bot.sendMessage(chatId, 'Сначала заполните профиль: это поможет подобрать туры точнее.', {
+            reply_markup: {
+              inline_keyboard: [[{ text: '📝 Заполнить анкету', callback_data: 'start_questionnaire' }]]
+            }
+          });
+          break;
+        }
+      } catch {}
+      await startTourSearchFlow(bot, chatId, userId, '');
+      break;
     case 'search_no_children':
       await handleChildrenInfo(bot, chatId, userId, false);
       break;
@@ -168,7 +189,18 @@ async function handleSearchCallbacks(
       break;
       
     case 'search_edit':
-      await bot.sendMessage(chatId, 'Функция редактирования параметров будет добавлена в следующей версии.\n\nПока что начните новый поиск.');
+      // Упрощённое редактирование: перезапускаем FSM с сохранёнными данными
+      await bot.sendMessage(chatId, 'Изменим параметры. Начнём с города вылета.');
+      {
+        const { getUserState, FSM_STATES, setUserState } = await import('./fsm');
+        const state = getUserState(userId);
+        if (state?.searchData) {
+          state.state = FSM_STATES.SEARCH_WAITING_DEPARTURE_CITY;
+          setUserState(userId, state);
+        }
+        const { askDepartureCity } = await import('./commands/searchFlow');
+        await askDepartureCity(bot, chatId);
+      }
       break;
       
     case 'search_cancel':
@@ -224,6 +256,12 @@ async function handleFSMInput(
       
     case FSM_STATES.SEARCH_WAITING_CHILDREN_AGES:
       await handleChildrenAges(bot, chatId, userId, text);
+      break;
+    case FSM_STATES.SEARCH_WAITING_DURATION:
+      await handleTripDuration(bot, chatId, userId, text);
+      break;
+    case FSM_STATES.SEARCH_WAITING_BUDGET:
+      await handleBudget(bot, chatId, userId, text);
       break;
       
     default:

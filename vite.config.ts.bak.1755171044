@@ -42,6 +42,21 @@ export default defineConfig({
     // Enable code splitting
     rollupOptions: {
       output: {
+        manualChunks: (id) => {
+          // Vendor chunks
+          if (id.includes("node_modules")) {
+            if (id.includes("react") || id.includes("react-dom")) {
+              return "react-vendor";
+            }
+            if (id.includes("@tanstack")) {
+              return "query-vendor";
+            }
+            if (id.includes("wouter")) {
+              return "router-vendor";
+            }
+            return "vendor";
+          }
+        },
         // Optimize chunk names
         chunkFileNames: "assets/js/[name]-[hash].js",
         entryFileNames: "assets/js/[name]-[hash].js",
@@ -51,7 +66,7 @@ export default defineConfig({
     // Optimize chunk size
     chunkSizeWarningLimit: 1000,
     // Enable minification
-    minify: true,
+    minify: "terser",
     terserOptions: {
       compress: {
         drop_console: process.env.NODE_ENV === "production",

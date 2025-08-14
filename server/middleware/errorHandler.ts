@@ -109,21 +109,21 @@ export function errorHandler(
 // Handle unhandled promise rejections
 process.on('unhandledRejection', (reason: Error | any) => {
   logger.error('Unhandled Rejection:', reason);
-  
-  // In production, exit process
   if (process.env.NODE_ENV === 'production') {
     logger.error('Shutting down due to unhandled rejection...');
     process.exit(1);
+  } else {
+    logger.warn('Unhandled rejection in development; process will continue.');
   }
 });
 
 // Handle uncaught exceptions
 process.on('uncaughtException', (error: Error) => {
   logger.error('Uncaught Exception:', error);
-  logger.error('Shutting down due to uncaught exception...');
-  
-  // Always exit on uncaught exceptions in production
   if (process.env.NODE_ENV === 'production') {
+    logger.error('Shutting down due to uncaught exception...');
     process.exit(1);
+  } else {
+    logger.warn('Uncaught exception in development; process will continue.');
   }
 });
