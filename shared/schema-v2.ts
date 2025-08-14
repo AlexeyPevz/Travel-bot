@@ -51,6 +51,9 @@ export const searchRequests = pgTable('search_requests', {
   children: integer('children').default(0),
   childrenAges: jsonb('children_ages').$type<number[]>(),
   
+  // Предпочтения по размещению
+  roomPreferences: jsonb('room_preferences').$type<RoomPreferences>(),
+  
   // Требования и предпочтения для этого поиска
   requirements: jsonb('requirements').$type<string[]>(), // ["all_inclusive", "animation", "sand_beach"]
   priorities: jsonb('priorities').$type<TravelPriorities>(), // Веса для этого поиска
@@ -166,6 +169,74 @@ export const userInsights = pgTable('user_insights', {
 
 // ========== ТИПЫ ==========
 
+// Предпочтения по номерам
+export interface RoomPreferences {
+  // Количество и тип комнат
+  roomsCount?: number;           // Количество номеров (для больших групп/семей)
+  roomType?: RoomType;           // Тип размещения
+  
+  // Кровати
+  bedsConfiguration?: BedsConfig; // Конфигурация кроватей
+  separateBeds?: boolean;        // Раздельные кровати
+  
+  // Вид из номера
+  viewPreference?: ViewType;     // Предпочтения по виду
+  viewImportance?: number;       // Насколько важен вид (0-10)
+  
+  // Расположение номера
+  floor?: FloorPreference;       // Предпочтения по этажу
+  quietRoom?: boolean;           // Тихий номер (вдали от лифтов/дискотек)
+  
+  // Дополнительные удобства
+  balcony?: boolean;             // Наличие балкона/террасы
+  kitchenette?: boolean;         // Мини-кухня
+  connectingRooms?: boolean;     // Смежные номера (для семей)
+  accessible?: boolean;          // Для людей с ограниченными возможностями
+  
+  // Размер номера
+  minSquareMeters?: number;      // Минимальная площадь номера
+  
+  // Специальные требования
+  specialRequests?: string[];    // ["детская кроватка", "ванна", "мини-бар"]
+}
+
+export type RoomType = 
+  | 'standard'      // Стандартный номер
+  | 'superior'      // Улучшенный номер
+  | 'deluxe'        // Делюкс
+  | 'suite'         // Люкс
+  | 'junior_suite'  // Джуниор сюит
+  | 'family'        // Семейный номер
+  | 'studio'        // Студия
+  | 'apartment'     // Апартаменты
+  | 'villa'         // Вилла
+  | 'bungalow';     // Бунгало
+
+export interface BedsConfig {
+  doubleBeds?: number;    // Количество двуспальных кроватей
+  singleBeds?: number;    // Количество односпальных кроватей
+  kingSizeBed?: boolean;  // Кровать king-size
+  sofaBed?: boolean;      // Диван-кровать
+}
+
+export type ViewType = 
+  | 'sea'           // Вид на море
+  | 'sea_side'      // Боковой вид на море
+  | 'pool'          // Вид на бассейн
+  | 'garden'        // Вид на сад
+  | 'mountain'      // Вид на горы
+  | 'city'          // Вид на город
+  | 'no_preference' // Не важно
+  | 'land';         // Вид на территорию
+
+export type FloorPreference = 
+  | 'ground'        // Первый этаж
+  | 'low'           // Нижние этажи (2-3)
+  | 'middle'        // Средние этажи
+  | 'high'          // Высокие этажи
+  | 'top'           // Последние этажи
+  | 'no_preference';// Не важно
+
 // Приоритеты и веса
 export interface TravelPriorities {
   profileName?: string;
@@ -182,6 +253,7 @@ export interface PriorityWeights {
   familyFriendly: number; // 0-10
   activities: number;    // 0-10
   quietness: number;     // 0-10
+  roomQuality: number;   // 0-10 - новый параметр для важности качества номера
 }
 
 export interface ScoreBreakdown {

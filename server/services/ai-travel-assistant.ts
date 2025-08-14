@@ -1,6 +1,6 @@
 import OpenAI from 'openai';
 import logger from '../utils/logger';
-import { SearchRequest, TravelPriorities, PriorityWeights } from '@shared/schema-v2';
+import { SearchRequest, TravelPriorities, PriorityWeights, RoomPreferences } from '@shared/schema-v2';
 
 // Инициализация OpenRouter клиента
 const openrouter = new OpenAI({
@@ -33,6 +33,9 @@ export interface ParsedTravelRequest {
   adults?: number;
   children?: number;
   childrenAges?: number[];
+  
+  // Предпочтения по номерам
+  roomPreferences?: RoomPreferences;
   
   // Требования
   requirements?: string[];
@@ -77,6 +80,14 @@ export async function parseTravelRequest(
 5. Определи недостающие ОПЦИОНАЛЬНЫЕ параметры: точные даты, бюджет, тип пляжа, звездность
 6. Сформулируй уточняющие вопросы на русском языке
 7. На основе текста предположи важность разных параметров (0-10)
+8. Извлекай предпочтения по номерам (количество комнат, вид из окна, тип номера)
+
+ПРЕДПОЧТЕНИЯ ПО НОМЕРАМ:
+- Тип номера: стандарт, люкс, вилла, апартаменты, семейный
+- Вид: море, боковой вид на море, бассейн, сад, горы
+- Количество комнат/спален
+- Тип кроватей: двуспальная, раздельные, king-size
+- Дополнительно: балкон, кухня, смежные номера, тихий номер
 
 ОБЯЗАТЕЛЬНЫЕ ПАРАМЕТРЫ:
 - Направление (хотя бы одна страна)
@@ -102,6 +113,21 @@ export async function parseTravelRequest(
   "adults": 2,
   "children": 1,
   "childrenAges": [5],
+  "roomPreferences": {
+    "roomsCount": 2,
+    "roomType": "family|villa|suite|standard",
+    "viewPreference": "sea|pool|garden",
+    "viewImportance": 8,
+    "bedsConfiguration": {
+      "doubleBeds": 1,
+      "singleBeds": 2
+    },
+    "separateBeds": false,
+    "balcony": true,
+    "quietRoom": true,
+    "connectingRooms": true,
+    "specialRequests": ["детская кроватка"]
+  },
   "requirements": ["all_inclusive", "sand_beach", "animation"],
   "suggestedPriorities": {
     "price": 7,
@@ -109,13 +135,14 @@ export async function parseTravelRequest(
     "beachLine": 8,
     "mealType": 9,
     "familyFriendly": 9,
-    "activities": 8
+    "activities": 8,
+    "roomQuality": 7
   },
   "missingRequired": ["departureCity"],
   "missingOptional": ["hotelStars", "beachType"],
   "clarificationQuestions": [
     "Из какого города планируете вылет?",
-    "Какая минимальная звездность отеля вас устроит?"
+    "Важен ли вид из номера?"
   ],
   "confidence": 0.85
 }`;
@@ -157,7 +184,8 @@ export async function parseTravelRequest(
     logger.info('AI parsed travel request', { 
       userText: userText.substring(0, 100),
       confidence: parsed.confidence,
-      missingParams: parsed.missingRequired.length + parsed.missingOptional.length
+      missingParams: parsed.missingRequired.length + parsed.missingOptional.length,
+      hasRoomPrefs: !!parsed.roomPreferences
     });
 
     return parsed;
@@ -168,12 +196,13 @@ export async function parseTravelRequest(
     return {
       dateType: 'flexible',
       missingRequired: ['destination', 'departureCity'],
-      missingOptional: ['budget', 'dates'],
+      missingOptional: ['budget', 'dates', 'roomPreferences'],
       clarificationQuestions: [
         'Куда хотите поехать?',
         'Из какого города вылет?',
         'На какие даты планируете поездку?',
-        'Какой у вас бюджет?'
+        'Какой у вас бюджет?',
+        'Какой тип номера предпочитаете?'
       ],
       confidence: 0
     };
@@ -347,12 +376,12 @@ export async function generateTourRecommendations(
 export async function detectTravelStyle(userText: string): Promise<string> {
   const keywords = {
     'Пляжный отдых': ['пляж', 'море', 'загорать', 'купаться', 'песок'],
-    'Семейный отдых': ['дети', 'ребенок', 'семья', 'анимация', 'детский клуб'],
+    'Семейный отдых': ['дети', 'ребенок', 'семья', 'анимация', 'детский клуб', 'смежные номера'],
     'Активный отдых': ['экскурсии', 'активный', 'развлечения', 'дискотеки', 'спорт'],
-    'Спокойный отдых': ['тихий', 'спокойный', 'уединенный', 'релакс', 'тишина'],
+    'Спокойный отдых': ['тихий', 'спокойный', 'уединенный', 'релакс', 'тишина', 'тихий номер'],
     'Экономичный отдых': ['бюджет', 'недорого', 'экономичный', 'дешевый'],
-    'Люксовый отдых': ['люкс', 'премиум', 'vip', 'роскошный', 'элитный'],
-    'Романтический отдых': ['вдвоем', 'романтика', 'медовый месяц', 'годовщина']
+    'Люксовый отдых': ['люкс', 'премиум', 'vip', 'роскошный', 'элитный', 'вилла', 'suite'],
+    'Романтический отдых': ['вдвоем', 'романтика', 'медовый месяц', 'годовщина', 'вид на море']
   };
 
   const lowerText = userText.toLowerCase();
