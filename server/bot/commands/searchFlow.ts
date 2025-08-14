@@ -66,21 +66,54 @@ export async function startTourSearchFlow(
       vacationType: preferences.vacationType,
       priorities: preferences.priorities
     };
-    // Предзаполняем город вылета и состав из профиля, если есть
+    // Предзаполняем все доступные данные из профиля
     try {
       const [profile] = await db.select().from(profiles).where(eq(profiles.userId, userId)).limit(1);
       if (profile) {
-        if (!(searchData as any).departureCity && (profile as any).departureCity) {
-          (searchData as any).departureCity = (profile as any).departureCity;
+        // Город вылета
+        if (!searchData.departureCity && profile.departureCity) {
+          searchData.departureCity = profile.departureCity;
         }
-        if (!(searchData as any).adultsCount && (profile as any).adults) {
-          (searchData as any).adultsCount = (profile as any).adults;
+        // Количество путешественников
+        if (!searchData.adultsCount && profile.adults) {
+          searchData.adultsCount = profile.adults;
         }
-        if (!(searchData as any).childrenCount && typeof (profile as any).children === 'number') {
-          (searchData as any).childrenCount = (profile as any).children;
+        if (!searchData.childrenCount && typeof profile.children === 'number') {
+          searchData.childrenCount = profile.children;
+        }
+        if (!searchData.childrenAges && profile.childrenAges) {
+          searchData.childrenAges = profile.childrenAges as number[];
+        }
+        // Страны
+        if ((!searchData.countries || searchData.countries.length === 0) && profile.countries) {
+          searchData.countries = profile.countries as string[];
+        }
+        // Бюджет
+        if (!searchData.budget && profile.budget) {
+          searchData.budget = profile.budget;
+        }
+        // Продолжительность
+        if (!searchData.tripDuration && profile.tripDuration) {
+          searchData.tripDuration = profile.tripDuration;
+        }
+        // Даты - если есть конкретные даты, используем фиксированный поиск
+        if (!searchData.startDate && !searchData.endDate && profile.startDate && profile.endDate) {
+          searchData.dateType = 'fixed';
+          searchData.startDate = new Date(profile.startDate);
+          searchData.endDate = new Date(profile.endDate);
+        }
+        // Тип отпуска
+        if (!searchData.vacationType && profile.vacationType) {
+          searchData.vacationType = profile.vacationType;
+        }
+        // Приоритеты
+        if (!searchData.priorities && profile.priorities) {
+          searchData.priorities = profile.priorities as Record<string, number>;
         }
       }
-    } catch {}
+    } catch (error) {
+      logger.error('Error loading profile data:', error);
+    }
     
     // Обновляем состояние пользователя
     setUserState(userId, {
@@ -114,16 +147,24 @@ export async function startTourSearchFlow(
     
     await bot.sendMessage(chatId, understoodMessage, { parse_mode: 'Markdown' });
 
-    // Если город вылета уже известен из профиля — пропускаем этот шаг
-    if ((searchData as any).departureCity) {
-      await handleDepartureCity(bot, chatId, userId, (searchData as any).departureCity as string);
-      // Если количество взрослых уже известно — пропускаем и его
-      if ((searchData as any).adultsCount) {
-        await handleAdultsCount(bot, chatId, userId, String((searchData as any).adultsCount));
-        // Если в профиле указано, что детей нет — сразу к подтверждению
-        if ((searchData as any).childrenCount === 0) {
+    // Пропускаем шаги, для которых данные уже есть
+    if (searchData.departureCity) {
+      await handleDepartureCity(bot, chatId, userId, searchData.departureCity);
+      
+      if (searchData.adultsCount) {
+        await handleAdultsCount(bot, chatId, userId, String(searchData.adultsCount));
+        
+        // Обработка детей
+        if (searchData.childrenCount === 0) {
           await handleChildrenInfo(bot, chatId, userId, false);
-          return;
+        } else if (searchData.childrenCount && searchData.childrenCount > 0 && searchData.childrenAges && searchData.childrenAges.length === searchData.childrenCount) {
+          // Если есть и количество детей, и их возраста - пропускаем вопросы о детях
+          const state = getUserState(userId);
+          if (state) {
+            state.state = FSM_STATES.SEARCH_CONFIRMING_PARAMS;
+            setUserState(userId, state);
+            await ensureBudgetAndDuration(bot, chatId, userId);
+          }
         }
       }
       return;
@@ -273,13 +314,15 @@ export async function handleChildrenInfo(
 }
 
 /**
- * Дополнительно спросим бюджет и длительность, если их нет
+ * Дополнительно спросим бюджет, длительность и опциональные параметры
  */
 async function ensureBudgetAndDuration(bot: TelegramBot, chatId: number, userId: string): Promise<void> {
   const state = getUserState(userId);
   if (!state?.searchData) return;
   const data = state.searchData;
   let asked = false;
+  
+  // Обязательные параметры
   if (!data.tripDuration) {
     asked = true;
     await bot.sendMessage(
@@ -300,6 +343,62 @@ async function ensureBudgetAndDuration(bot: TelegramBot, chatId: number, userId:
     setUserState(userId, state);
     return;
   }
+  
+  // Опциональные параметры - спрашиваем с возможностью пропустить
+  if (data.starRating === undefined) {
+    asked = true;
+    await bot.sendMessage(
+      chatId,
+      '⭐ Минимальная звездность отеля?\n\n_Нажмите кнопку или отправьте число от 1 до 5_',
+      {
+        parse_mode: 'Markdown',
+        reply_markup: {
+          inline_keyboard: [
+            [
+              { text: '3⭐', callback_data: 'search_stars_3' },
+              { text: '4⭐', callback_data: 'search_stars_4' },
+              { text: '5⭐', callback_data: 'search_stars_5' }
+            ],
+            [
+              { text: 'Не важно', callback_data: 'search_stars_any' }
+            ]
+          ]
+        }
+      }
+    );
+    state.state = FSM_STATES.SEARCH_WAITING_STAR_RATING;
+    setUserState(userId, state);
+    return;
+  }
+  
+  if (!data.mealType) {
+    asked = true;
+    await bot.sendMessage(
+      chatId,
+      '🍴 Какой тип питания предпочитаете?',
+      {
+        reply_markup: {
+          inline_keyboard: [
+            [
+              { text: 'Всё включено', callback_data: 'search_meal_ai' },
+              { text: 'Завтрак', callback_data: 'search_meal_bb' }
+            ],
+            [
+              { text: 'Полупансион', callback_data: 'search_meal_hb' },
+              { text: 'Полный пансион', callback_data: 'search_meal_fb' }
+            ],
+            [
+              { text: 'Не важно', callback_data: 'search_meal_any' }
+            ]
+          ]
+        }
+      }
+    );
+    state.state = FSM_STATES.SEARCH_WAITING_MEAL_TYPE;
+    setUserState(userId, state);
+    return;
+  }
+  
   if (!asked) {
     await showSearchSummary(bot, chatId, userId);
   }
@@ -359,26 +458,36 @@ export async function handleChildrenCount(
   userId: string,
   count: string
 ): Promise<void> {
-  const state = getUserState(userId);
-  if (!state || !state.searchData) return;
-  
-  const childrenCount = parseInt(count);
-  if (isNaN(childrenCount) || childrenCount < 1) {
-    await bot.sendMessage(chatId, '❌ Пожалуйста, введите корректное число детей');
-    return;
+  try {
+    const state = getUserState(userId);
+    if (!state || !state.searchData) return;
+    
+    const childrenCount = parseInt(count);
+    if (isNaN(childrenCount) || childrenCount < 1) {
+      await bot.sendMessage(chatId, '❌ Пожалуйста, введите корректное число детей');
+      return;
+    }
+    
+    if (childrenCount > 10) {
+      await bot.sendMessage(chatId, '❌ Максимальное количество детей - 10. Пожалуйста, введите меньшее число.');
+      return;
+    }
+    
+    state.searchData.childrenCount = childrenCount;
+    state.searchData.childrenAges = [];
+    state.state = FSM_STATES.SEARCH_WAITING_CHILDREN_AGES;
+    setUserState(userId, state);
+    
+    // Запрашиваем возраст детей
+    await bot.sendMessage(
+      chatId,
+      `👶 Укажите возраст детей через запятую.\n\nНапример: 5, 10, 14\n\n_Возраст детей важен для правильного расчета стоимости_`,
+      { parse_mode: 'Markdown' }
+    );
+  } catch (error) {
+    logger.error('Error handling children count:', error);
+    await bot.sendMessage(chatId, '❌ Произошла ошибка при обработке количества детей. Попробуйте еще раз.');
   }
-  
-  state.searchData.childrenCount = childrenCount;
-  state.searchData.childrenAges = [];
-  state.state = FSM_STATES.SEARCH_WAITING_CHILDREN_AGES;
-  setUserState(userId, state);
-  
-  // Запрашиваем возраст детей
-  await bot.sendMessage(
-    chatId,
-    `👶 Укажите возраст детей через запятую.\n\nНапример: 5, 10, 14\n\n_Возраст детей важен для правильного расчета стоимости_`,
-    { parse_mode: 'Markdown' }
-  );
 }
 
 /**
@@ -393,24 +502,90 @@ export async function handleChildrenAges(
   const state = getUserState(userId);
   if (!state || !state.searchData) return;
   
-  // Парсим возраста
-  const ages = agesText.split(/[,\s]+/)
-    .map(age => parseInt(age.trim()))
-    .filter(age => !isNaN(age) && age >= 0 && age < 18);
+  try {
+    // Проверяем, что childrenCount задан
+    if (!state.searchData.childrenCount || state.searchData.childrenCount === 0) {
+      logger.error('childrenCount is not set when handling ages');
+      await bot.sendMessage(chatId, '❌ Произошла ошибка. Давайте начнем сначала.');
+      state.state = FSM_STATES.IDLE;
+      setUserState(userId, state);
+      return;
+    }
+    
+    // Парсим возраста
+    const ages = agesText.split(/[,\s]+/)
+      .map(age => parseInt(age.trim()))
+      .filter(age => !isNaN(age) && age >= 0 && age < 18);
+    
+    if (ages.length !== state.searchData.childrenCount) {
+      await bot.sendMessage(
+        chatId,
+        `❌ Пожалуйста, укажите возраст для всех ${state.searchData.childrenCount} детей через запятую`
+      );
+      return;
+    }
+    
+    state.searchData.childrenAges = ages;
+    state.state = FSM_STATES.SEARCH_CONFIRMING_PARAMS;
+    setUserState(userId, state);
+    
+    // Показываем итоговые параметры
+    await ensureBudgetAndDuration(bot, chatId, userId);
+  } catch (error) {
+    logger.error('Error handling children ages:', error);
+    await bot.sendMessage(chatId, '❌ Произошла ошибка при обработке возраста детей. Попробуйте еще раз.');
+  }
+}
+
+/**
+ * Обработать выбор звездности отеля
+ */
+export async function handleStarRating(
+  bot: TelegramBot,
+  chatId: number,
+  userId: string,
+  rating: string
+): Promise<void> {
+  const state = getUserState(userId);
+  if (!state || !state.searchData) return;
   
-  if (ages.length !== state.searchData.childrenCount) {
-    await bot.sendMessage(
-      chatId,
-      `❌ Пожалуйста, укажите возраст для всех ${state.searchData.childrenCount} детей через запятую`
-    );
-    return;
+  if (rating === 'any') {
+    state.searchData.starRating = 0; // 0 означает "не важно"
+  } else {
+    const stars = parseInt(rating);
+    if (isNaN(stars) || stars < 1 || stars > 5) {
+      await bot.sendMessage(chatId, '❌ Пожалуйста, выберите от 1 до 5 звезд или "Не важно"');
+      return;
+    }
+    state.searchData.starRating = stars;
   }
   
-  state.searchData.childrenAges = ages;
-  state.state = FSM_STATES.SEARCH_CONFIRMING_PARAMS;
   setUserState(userId, state);
+  await ensureBudgetAndDuration(bot, chatId, userId);
+}
+
+/**
+ * Обработать выбор типа питания
+ */
+export async function handleMealType(
+  bot: TelegramBot,
+  chatId: number,
+  userId: string,
+  mealType: string
+): Promise<void> {
+  const state = getUserState(userId);
+  if (!state || !state.searchData) return;
   
-  // Показываем итоговые параметры
+  const mealTypes: Record<string, string> = {
+    'ai': 'all_inclusive',
+    'bb': 'breakfast',
+    'hb': 'half_board',
+    'fb': 'full_board',
+    'any': 'any'
+  };
+  
+  state.searchData.mealType = mealTypes[mealType] || 'any';
+  setUserState(userId, state);
   await ensureBudgetAndDuration(bot, chatId, userId);
 }
 
@@ -460,6 +635,21 @@ async function showSearchSummary(
   // Бюджет
   if (data.budget) {
     summary += `💰 **Бюджет**: до ${data.budget.toLocaleString('ru-RU')} ₽\n`;
+  }
+  
+  // Дополнительные параметры
+  if (data.starRating && data.starRating > 0) {
+    summary += `⭐ **Минимум звезд**: ${data.starRating}\n`;
+  }
+  
+  if (data.mealType && data.mealType !== 'any') {
+    const mealTypeNames: Record<string, string> = {
+      'all_inclusive': 'Всё включено',
+      'breakfast': 'Завтрак',
+      'half_board': 'Полупансион',
+      'full_board': 'Полный пансион'
+    };
+    summary += `🍴 **Питание**: ${mealTypeNames[data.mealType] || data.mealType}\n`;
   }
   
   summary += '\n✅ Все готово для поиска!';
@@ -524,7 +714,11 @@ export async function performTourSearch(
       departureCity: data.departureCity,
       adults: data.adultsCount,
       children: data.childrenCount || 0,
-      childrenAges: data.childrenAges || []
+      childrenAges: data.childrenAges || [],
+      // Новые параметры для фильтрации
+      minStarRating: data.starRating && data.starRating > 0 ? data.starRating : undefined,
+      mealType: data.mealType !== 'any' ? data.mealType : undefined,
+      resort: data.resort
     };
     
     // Выполняем поиск

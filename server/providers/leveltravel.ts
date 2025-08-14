@@ -483,7 +483,8 @@ export async function fetchToursFromLevelTravel(params: TourSearchParams): Promi
     } else {
       startDate = new Date();
       startDate.setDate(startDate.getDate() + 14);
-      nights = params.nights || 7;
+      // Приоритет tripDuration над nights, если указана
+      nights = params.tripDuration || params.nights || 7;
       endDate = new Date(startDate);
       endDate.setDate(endDate.getDate() + nights);
     }
@@ -632,6 +633,30 @@ export async function fetchToursFromLevelTravel(params: TourSearchParams): Promi
             availability: hotelData.availability?.hotel || 'available',
             matchScore: calculateMatchScore(hotel, hotelData, params)
           };
+          
+          // Применяем фильтры
+          // Фильтр по минимальной звездности
+          if (params.minStarRating && tour.hotelStars < params.minStarRating) {
+            continue;
+          }
+          
+          // Фильтр по типу питания
+          if (params.mealType && params.mealType !== 'any') {
+            const tourMealType = tour.mealType?.toLowerCase() || '';
+            const requiredMealType = params.mealType.toLowerCase();
+            
+            // Проверяем соответствие типа питания
+            const mealTypeMatch = 
+              (requiredMealType === 'all_inclusive' && (tourMealType.includes('всё включено') || tourMealType.includes('all'))) ||
+              (requiredMealType === 'breakfast' && (tourMealType.includes('завтрак') || tourMealType.includes('bb'))) ||
+              (requiredMealType === 'half_board' && (tourMealType.includes('полупансион') || tourMealType.includes('hb'))) ||
+              (requiredMealType === 'full_board' && (tourMealType.includes('полный пансион') || tourMealType.includes('fb')));
+              
+            if (!mealTypeMatch) {
+              continue;
+            }
+          }
+          
           result.push(tour);
         }
       } catch (e) {
@@ -641,6 +666,59 @@ export async function fetchToursFromLevelTravel(params: TourSearchParams): Promi
     }
 
     logger.info(`Level.Travel: collected ${result.length} tours`);
+    
+    // Обогащаем топ-5 результатов детальной информацией об отелях
+    if (result.length > 0) {
+      logger.info('Enriching top hotels with detailed information...');
+      const topResults = result.slice(0, 5);
+      
+      const enrichmentPromises = topResults.map(async (tour) => {
+        try {
+          // Извлекаем ID отеля из externalId (формат: "lt-123456")
+          const hotelId = tour.externalId.replace('lt-', '');
+          const hotelDetails = await fetchHotelDetails(hotelId);
+          
+          if (hotelDetails) {
+            // Обогащаем данные тура детальной информацией
+            if (hotelDetails.mealTypes && hotelDetails.mealTypes.length > 0) {
+              tour.mealType = parseMealType(hotelDetails.mealTypes[0]);
+            }
+            
+            if (hotelDetails.beach_distance !== undefined && hotelDetails.beach_distance !== null) {
+              tour.beachDistance = hotelDetails.beach_distance;
+            }
+            
+            if (hotelDetails.beach_type) {
+              tour.beachType = hotelDetails.beach_type;
+            }
+            
+            if (hotelDetails.airport_distance !== undefined && hotelDetails.airport_distance !== null) {
+              tour.airportDistance = hotelDetails.airport_distance;
+            }
+            
+            if (hotelDetails.photos && hotelDetails.photos.length > 0) {
+              // Обновляем изображения более качественными
+              tour.images = hotelDetails.photos.map((photo: any) => photo.url || photo).filter(Boolean);
+              if (tour.images.length > 0) {
+                tour.image = tour.images[0];
+              }
+            }
+            
+            if (hotelDetails.description && hotelDetails.description.length > tour.description.length) {
+              tour.description = hotelDetails.description;
+            }
+            
+            logger.debug(`Enriched hotel ${tour.hotel} with detailed information`);
+          }
+        } catch (error) {
+          logger.warn(`Failed to enrich hotel ${tour.hotel}:`, error);
+        }
+      });
+      
+      await Promise.all(enrichmentPromises);
+      logger.info('Hotel enrichment completed');
+    }
+    
     return result;
   } catch (error) {
     const errorMessage = (error as Error).message || 'Неизвестная ошибка';
@@ -668,7 +746,7 @@ function generateAffiliateLink(
     hotel_id: hotel.id.toString(),
     tour_id: variant.tour_id || '',
     start_date: params.startDate?.toISOString().split('T')[0] || '',
-    nights: (params.nights || 7).toString(),
+    nights: (params.tripDuration || params.nights || 7).toString(),
     adults: (params.adults || 2).toString(),
     kids: (params.children || 0).toString()
   });

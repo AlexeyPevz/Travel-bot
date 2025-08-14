@@ -184,6 +184,37 @@ async function handleSearchCallbacks(
       await handleChildrenInfo(bot, chatId, userId, true);
       break;
       
+    // Обработчики звездности
+    case 'search_stars_3':
+      await import('./commands/searchFlow').then(m => m.handleStarRating(bot, chatId, userId, '3'));
+      break;
+    case 'search_stars_4':
+      await import('./commands/searchFlow').then(m => m.handleStarRating(bot, chatId, userId, '4'));
+      break;
+    case 'search_stars_5':
+      await import('./commands/searchFlow').then(m => m.handleStarRating(bot, chatId, userId, '5'));
+      break;
+    case 'search_stars_any':
+      await import('./commands/searchFlow').then(m => m.handleStarRating(bot, chatId, userId, 'any'));
+      break;
+      
+    // Обработчики типа питания
+    case 'search_meal_ai':
+      await import('./commands/searchFlow').then(m => m.handleMealType(bot, chatId, userId, 'ai'));
+      break;
+    case 'search_meal_bb':
+      await import('./commands/searchFlow').then(m => m.handleMealType(bot, chatId, userId, 'bb'));
+      break;
+    case 'search_meal_hb':
+      await import('./commands/searchFlow').then(m => m.handleMealType(bot, chatId, userId, 'hb'));
+      break;
+    case 'search_meal_fb':
+      await import('./commands/searchFlow').then(m => m.handleMealType(bot, chatId, userId, 'fb'));
+      break;
+    case 'search_meal_any':
+      await import('./commands/searchFlow').then(m => m.handleMealType(bot, chatId, userId, 'any'));
+      break;
+      
     case 'search_confirm':
       await performTourSearch(bot, chatId, userId);
       break;
@@ -262,6 +293,15 @@ async function handleFSMInput(
       break;
     case FSM_STATES.SEARCH_WAITING_BUDGET:
       await handleBudget(bot, chatId, userId, text);
+      break;
+      
+    case FSM_STATES.SEARCH_WAITING_STAR_RATING:
+      await import('./commands/searchFlow').then(m => m.handleStarRating(bot, chatId, userId, text));
+      break;
+      
+    case FSM_STATES.SEARCH_WAITING_MEAL_TYPE:
+      // Если пользователь написал текстом вместо кнопок
+      await bot.sendMessage(chatId, 'Пожалуйста, используйте кнопки для выбора типа питания');
       break;
       
     default:

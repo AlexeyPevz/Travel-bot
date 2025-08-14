@@ -171,11 +171,31 @@ class GracefulShutdown {
 
     logger.info('Stopping Telegram bot...');
     try {
-      await this.bot.stopPolling();
-      await this.bot.close();
+      // Stop polling first
+      if (this.bot.isPolling()) {
+        await this.bot.stopPolling();
+      }
+      
+      // Try to close the bot connection
+      try {
+        await this.bot.close();
+      } catch (closeError: any) {
+        // Ignore 429 errors during shutdown as they're not critical
+        if (closeError.code === 'ETELEGRAM' && closeError.response?.statusCode === 429) {
+          logger.info('Telegram bot close returned 429, ignoring during shutdown');
+        } else {
+          throw closeError;
+        }
+      }
+      
       logger.info('Telegram bot stopped');
-    } catch (error) {
-      logger.error('Error stopping bot:', error);
+    } catch (error: any) {
+      // Log error but don't fail shutdown for non-critical bot errors
+      if (error.code === 'ETELEGRAM') {
+        logger.warn('Non-critical Telegram error during shutdown:', error.message);
+      } else {
+        logger.error('Error stopping bot:', error);
+      }
     }
   }
 
@@ -189,16 +209,32 @@ class GracefulShutdown {
     
     try {
       // Pause all queues first
-      await Promise.all(queues.map(queue => queue.pause(true)));
+      // Bull uses pause() without parameters, not pause(true)
+      await Promise.all(queues.map(queue => {
+        if (queue.pause && typeof queue.pause === 'function') {
+          return queue.pause();
+        }
+        return Promise.resolve();
+      }));
       logger.info('All queues paused');
 
       // Wait for active jobs to complete (with timeout)
       const jobTimeout = 15000; // 15 seconds
       const waitPromises = queues.map(queue => 
         new Promise<void>((resolve) => {
+          if (!queue.getActiveCount || typeof queue.getActiveCount !== 'function') {
+            resolve();
+            return;
+          }
+          
           const checkInterval = setInterval(async () => {
-            const activeCount = await queue.getActiveCount();
-            if (activeCount === 0) {
+            try {
+              const activeCount = await queue.getActiveCount();
+              if (activeCount === 0) {
+                clearInterval(checkInterval);
+                resolve();
+              }
+            } catch (err) {
               clearInterval(checkInterval);
               resolve();
             }
@@ -216,7 +252,12 @@ class GracefulShutdown {
       logger.info('Active jobs completed or timed out');
 
       // Close all queues
-      await Promise.all(queues.map(queue => queue.close()));
+      await Promise.all(queues.map(queue => {
+        if (queue.close && typeof queue.close === 'function') {
+          return queue.close();
+        }
+        return Promise.resolve();
+      }));
       logger.info('All queues closed');
     } catch (error) {
       logger.error('Error closing queues:', error);
@@ -265,8 +306,11 @@ class GracefulShutdown {
   private async closeRedis(): Promise<void> {
     logger.info('Closing Redis connection...');
     try {
-      await redis.quit();
-      logger.info('Redis connection closed');
+      // ioredis uses disconnect() method, not quit()
+      if (redis && typeof redis.disconnect === 'function') {
+        await redis.disconnect();
+        logger.info('Redis connection closed');
+      }
     } catch (error) {
       logger.error('Error closing Redis:', error);
     }
