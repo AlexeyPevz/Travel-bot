@@ -88,8 +88,21 @@ export abstract class BaseCommand implements ICommand {
     try {
       return await bot.sendMessage(chatId, text, options);
     } catch (error) {
-      logger.error('Error sending message:', error);
-      throw error;
+      // Log detailed error
+      const err: any = error;
+      const description: string | undefined = err?.response?.body?.description || err?.message;
+      logger.error('Error sending message:', { description, code: err?.code });
+
+      // Fallback: sanitize and truncate message, remove markup
+      try {
+        const sanitized = (text || '').toString().slice(0, 3500);
+        const fallbackOptions: any = { disable_web_page_preview: true };
+        // Avoid reply markup on fallback to reduce risk of Bad Request
+        return await bot.sendMessage(chatId, sanitized, fallbackOptions);
+      } catch (fallbackError) {
+        logger.error('Fallback sendMessage failed:', { message: (fallbackError as any)?.message });
+        throw error;
+      }
     }
   }
 
@@ -101,8 +114,12 @@ export abstract class BaseCommand implements ICommand {
     chatId: number, 
     error: string | Error
   ): Promise<void> {
-    const errorMessage = error instanceof Error ? error.message : error;
-    logger.error(`Command ${this.name} error:`, errorMessage);
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    if (error instanceof Error) {
+      logger.error(`Command ${this.name} error: ${errorMessage}`, { stack: error.stack });
+    } else {
+      logger.error(`Command ${this.name} error: ${errorMessage}`);
+    }
     
     await this.sendMessage(
       bot, 
@@ -116,6 +133,13 @@ export abstract class BaseCommand implements ICommand {
    */
   protected isGroupChat(chatId: number): boolean {
     return chatId < 0;
+  }
+
+  /**
+   * Проверить, является ли чат приватным
+   */
+  protected isPrivateChat(chatId: number): boolean {
+    return chatId > 0;
   }
 
   /**

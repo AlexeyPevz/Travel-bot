@@ -339,13 +339,15 @@ async function completeOnboarding(
   if (!userState || !userState.profile) return;
 
   // Сохраняем профиль в базу
-  await storage.saveProfile({
-    ...userState.profile,
+  await storage.saveProfile(
     userId,
-    createdAt: new Date(),
-    updatedAt: new Date(),
-    isActive: true
-  });
+    {
+      ...userState.profile,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      isActive: true
+    }
+  );
 
   // Сбрасываем состояние
   setUserState(userId, {

@@ -86,10 +86,17 @@ router.post('/telegram',
       }
       
       // Получаем профиль пользователя
-      const [profile] = await db.select()
+      let [profile] = await db.select()
         .from(profiles)
         .where(eq(profiles.userId, userId))
         .limit(1);
+
+      // Auto-create empty profile on first auth so MiniApp screens can load
+      if (!profile) {
+        [profile] = await db.insert(profiles)
+          .values({ userId, name: userData.first_name, createdAt: new Date(), updatedAt: new Date() })
+          .returning();
+      }
       
       logger.info(`User ${userId} authenticated via Telegram Web App`);
       

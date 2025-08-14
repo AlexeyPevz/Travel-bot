@@ -1,33 +1,15 @@
 import { Express, Request, Response, NextFunction } from 'express';
-import rateLimit from 'express-rate-limit';
 import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
 import session from 'express-session';
 import { doubleCsrf } from 'csrf-csrf';
 import crypto from 'crypto';
 
-// Rate limiting configuration
-const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // limit each IP to 100 requests per windowMs
-  message: 'Too many requests from this IP, please try again later.',
-  standardHeaders: true,
-  legacyHeaders: false,
-});
-
-// API rate limiter (stricter)
-const apiLimiter = rateLimit({
-  windowMs: 1 * 60 * 1000, // 1 minute
-  max: 30, // limit each IP to 30 requests per minute
-  message: 'Too many API requests, please try again later.',
-  standardHeaders: true,
-  legacyHeaders: false,
-  skip: (req) => req.path === '/api/health', // Skip rate limiting for health checks
-});
+// Rate limiting перенесён в `dynamicRateLimiter` (см. server/middleware/rateLimiter.ts)
 
 // CSRF Protection configuration
 const getSecret = () => process.env.CSRF_SECRET || crypto.randomBytes(32).toString('hex');
-const { doubleCsrfProtection } = doubleCsrf({
+const { doubleCsrfProtection, generateToken } = doubleCsrf({
   getSecret,
   cookieName: 'x-csrf-token',
   cookieOptions: {
@@ -51,6 +33,7 @@ const corsOptions = {
 };
 
 export function setupSecurity(app: Express) {
+  const csrfDisabled = process.env.DISABLE_CSRF === 'true';
   // Trust proxy - required for rate limiting and secure cookies behind reverse proxy
   app.set('trust proxy', 1);
 
@@ -117,11 +100,9 @@ export function setupSecurity(app: Express) {
     }
   });
 
-  // Apply rate limiting
-  app.use('/api/', apiLimiter);
-  app.use(limiter);
+  // Rate limiting is configured separately in dynamicRateLimiter
 
-  // CSRF protection for non-API routes
+  // CSRF protection for non-API routes (can be disabled via DISABLE_CSRF=true)
   app.use((req: Request, res: Response, next: NextFunction) => {
     if (req.path.startsWith('/api/telegram') || req.path.startsWith('/api/webhook')) {
       return next();
@@ -131,17 +112,42 @@ export function setupSecurity(app: Express) {
     if (req.path.startsWith('/api')) {
       return next();
     }
-
     if (['GET', 'HEAD', 'OPTIONS'].includes(req.method)) {
       return next();
     }
-
+    if (csrfDisabled) {
+      return next();
+    }
     return doubleCsrfProtection(req, res, next);
   });
 
   // CSRF token endpoint
   app.get('/api/csrf-token', (req: Request, res: Response) => {
-    res.json({ csrfToken: '' });
+    if (csrfDisabled) {
+      const token = crypto.randomBytes(32).toString('hex');
+      // Optionally set a non-HTTPOnly cookie for client debugging (not required)
+      res.cookie('x-csrf-token', token, {
+        httpOnly: false,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'strict',
+        maxAge: 3600000,
+        domain: process.env.COOKIE_DOMAIN || undefined,
+      });
+      return res.json({ csrfToken: token });
+    }
+    try {
+      // Fallback path if library provides generateToken
+      // @ts-ignore
+      const token = (generateToken as any)?.(req, res);
+      if (!token) {
+        // As a fallback, emit a random token (library will still validate unsafe methods)
+        const rnd = crypto.randomBytes(32).toString('hex');
+        return res.json({ csrfToken: rnd });
+      }
+      return res.json({ csrfToken: token });
+    } catch {
+      return res.status(500).json({ error: { message: 'Failed to issue CSRF token' } });
+    }
   });
 
   // Security headers for API responses

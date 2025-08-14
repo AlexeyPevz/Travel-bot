@@ -56,10 +56,7 @@ export class StartCommand extends BaseCommand {
           bot,
           chatId,
           MESSAGES.welcome.returning + deepLinkMessage,
-          { 
-            parse_mode: 'Markdown',
-            reply_markup: getQuickActions('start')
-          }
+          { reply_markup: getQuickActions('start') }
         );
       } else {
         // Новый пользователь
@@ -67,10 +64,7 @@ export class StartCommand extends BaseCommand {
           bot,
           chatId,
           MESSAGES.welcome.firstTime + deepLinkMessage,
-          { 
-            parse_mode: 'Markdown',
-            reply_markup: getQuickActions('start')
-          }
+          { reply_markup: getQuickActions('start') }
         );
       }
 

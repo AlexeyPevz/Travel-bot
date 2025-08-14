@@ -2,6 +2,8 @@ import { createRoot } from "react-dom/client";
 import App from "./App";
 import "./index.css";
 import { TelegramWebApp } from "./lib/telegramWebApp";
+import { QueryClientProvider } from "@tanstack/react-query";
+import { queryClient } from "./lib/queryClient";
 
 // Add Telegram type to Window interface
 declare global {
@@ -13,7 +15,8 @@ declare global {
 }
 
 // Setup Telegram Web App integration
-if (!window.Telegram?.WebApp) {
+// Run polyfill only in development and only when Telegram WebApp is not provided
+if (import.meta.env.DEV && !(window as any)?.Telegram?.WebApp) {
   // Polyfill for development outside Telegram
   // In production this would be provided by Telegram Mini App environment
   window.Telegram = {
@@ -159,4 +162,8 @@ if (!window.Telegram?.WebApp) {
   console.log("Telegram WebApp polyfill initialized for development");
 }
 
-createRoot(document.getElementById("root")!).render(<App />);
+createRoot(document.getElementById("root")!).render(
+  <QueryClientProvider client={queryClient}>
+    <App />
+  </QueryClientProvider>
+);

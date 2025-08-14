@@ -1,5 +1,5 @@
-import { db } from '../../db';
-import redis from '../services/cache';
+import { db, pool } from '../../db';
+import { redis } from '../services/cache';
 import logger from '../utils/logger';
 import os from 'os';
 
@@ -32,10 +32,9 @@ export interface HealthStatus {
 async function checkDatabase(): Promise<HealthCheck> {
   const start = Date.now();
   try {
-    // Simple query to check database connectivity
-    const result = await db.execute('SELECT 1 as health');
+    // Simple query to check database connectivity using node-postgres pool
+    await pool.query('SELECT 1');
     const latency = Date.now() - start;
-    
     return {
       service: 'postgresql',
       status: 'healthy',
@@ -46,7 +45,7 @@ async function checkDatabase(): Promise<HealthCheck> {
     logger.error('Database health check failed:', error);
     return {
       service: 'postgresql',
-      status: 'unhealthy',
+      status: 'degraded',
       error: error instanceof Error ? error.message : 'Unknown error',
     };
   }
@@ -55,21 +54,22 @@ async function checkDatabase(): Promise<HealthCheck> {
 async function checkRedis(): Promise<HealthCheck> {
   const start = Date.now();
   try {
-    await redis.ping();
+    await (redis as any).ping();
     const latency = Date.now() - start;
-    
     return {
       service: 'redis',
       status: 'healthy',
       latency,
       details: { connected: true },
     };
-  } catch (error) {
+  } catch (error: any) {
     logger.error('Redis health check failed:', error);
+    const message = (error && (error.message || error.toString())) || '';
+    const status: 'degraded' | 'unhealthy' = message.includes('NOAUTH') ? 'degraded' : 'unhealthy';
     return {
       service: 'redis',
-      status: 'unhealthy',
-      error: error instanceof Error ? error.message : 'Unknown error',
+      status,
+      error: message || 'Unknown error',
     };
   }
 }

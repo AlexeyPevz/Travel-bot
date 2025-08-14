@@ -1,5 +1,6 @@
 import TelegramBot from 'node-telegram-bot-api';
 import { getUserState, setUserState, FSM_STATES, TourSearchData } from '../fsm';
+import { handleDepartureCity as proceedDepartureCity, handleAdultsCount as proceedAdultsCount, handleChildrenInfo as proceedChildrenInfo } from './searchFlow';
 import { analyzeTourRequest } from '../../services/openrouter';
 import { searchTours } from '../../providers';
 import { db } from '../../../db';
@@ -25,13 +26,37 @@ export async function startTourSearchFlow(
   try {
     await bot.sendMessage(chatId, '🔍 Анализирую ваш запрос...');
     
-    // Анализируем текст с помощью AI
-    const preferences = await analyzeTourRequest(text);
+    // Анализируем текст с помощью AI (если есть текст), иначе используем профиль/дефолты
+    let preferences: any = {};
+    try {
+      preferences = text ? await analyzeTourRequest(text) : {};
+    } catch {
+      preferences = {};
+    }
+
+    // Подтягиваем профиль пользователя как источник параметров, если нужно
+    try {
+      const [profile] = await db.select().from(profiles).where(eq(profiles.userId, userId)).limit(1);
+      if (profile) {
+        preferences.countries = preferences.countries || (profile.countries as any) || [];
+        preferences.budget = preferences.budget || (profile as any).budget || undefined;
+        // Даты и длительность
+        if (!preferences.tripDuration && (profile as any).tripDuration) {
+          preferences.tripDuration = (profile as any).tripDuration as any;
+        }
+        if (!preferences.startDate && (profile as any).startDate) {
+          preferences.startDate = new Date((profile as any).startDate as any);
+        }
+        if (!preferences.endDate && (profile as any).endDate) {
+          preferences.endDate = new Date((profile as any).endDate as any);
+        }
+      }
+    } catch {}
     
     // Сохраняем проанализированные данные
     const searchData: TourSearchData = {
-      destination: preferences.countries?.[0], // Берем первую страну как основную
-      countries: preferences.countries,
+      destination: (preferences.countries && preferences.countries[0]) || 'Турция',
+      countries: preferences.countries && preferences.countries.length ? preferences.countries : ['Турция'],
       budget: preferences.budget,
       dateType: preferences.dateType || 'flexible',
       startDate: preferences.startDate,
@@ -41,6 +66,21 @@ export async function startTourSearchFlow(
       vacationType: preferences.vacationType,
       priorities: preferences.priorities
     };
+    // Предзаполняем город вылета и состав из профиля, если есть
+    try {
+      const [profile] = await db.select().from(profiles).where(eq(profiles.userId, userId)).limit(1);
+      if (profile) {
+        if (!(searchData as any).departureCity && (profile as any).departureCity) {
+          (searchData as any).departureCity = (profile as any).departureCity;
+        }
+        if (!(searchData as any).adultsCount && (profile as any).adults) {
+          (searchData as any).adultsCount = (profile as any).adults;
+        }
+        if (!(searchData as any).childrenCount && typeof (profile as any).children === 'number') {
+          (searchData as any).childrenCount = (profile as any).children;
+        }
+      }
+    } catch {}
     
     // Обновляем состояние пользователя
     setUserState(userId, {
@@ -48,7 +88,7 @@ export async function startTourSearchFlow(
       profile: { userId },
       searchData
     });
-    
+
     // Показываем, что мы поняли из запроса
     let understoodMessage = '✅ Вот что я понял из вашего запроса:\n\n';
     
@@ -73,8 +113,22 @@ export async function startTourSearchFlow(
     understoodMessage += '\nТеперь мне нужно уточнить несколько обязательных параметров для поиска.';
     
     await bot.sendMessage(chatId, understoodMessage, { parse_mode: 'Markdown' });
-    
-    // Запрашиваем город вылета
+
+    // Если город вылета уже известен из профиля — пропускаем этот шаг
+    if ((searchData as any).departureCity) {
+      await handleDepartureCity(bot, chatId, userId, (searchData as any).departureCity as string);
+      // Если количество взрослых уже известно — пропускаем и его
+      if ((searchData as any).adultsCount) {
+        await handleAdultsCount(bot, chatId, userId, String((searchData as any).adultsCount));
+        // Если в профиле указано, что детей нет — сразу к подтверждению
+        if ((searchData as any).childrenCount === 0) {
+          await handleChildrenInfo(bot, chatId, userId, false);
+          return;
+        }
+      }
+      return;
+    }
+    // Иначе — спрашиваем город вылета
     await askDepartureCity(bot, chatId);
     
   } catch (error) {
@@ -219,6 +273,84 @@ export async function handleChildrenInfo(
 }
 
 /**
+ * Дополнительно спросим бюджет и длительность, если их нет
+ */
+async function ensureBudgetAndDuration(bot: TelegramBot, chatId: number, userId: string): Promise<void> {
+  const state = getUserState(userId);
+  if (!state?.searchData) return;
+  const data = state.searchData;
+  let asked = false;
+  if (!data.tripDuration) {
+    asked = true;
+    await bot.sendMessage(
+      chatId,
+      '⏱ На сколько ночей планируете поездку? (например: 7)'
+    );
+    state.state = FSM_STATES.SEARCH_WAITING_DURATION;
+    setUserState(userId, state);
+    return; // дождёмся ответа
+  }
+  if (!data.budget) {
+    asked = true;
+    await bot.sendMessage(
+      chatId,
+      '💰 Укажите ориентир бюджета на человека (в ₽), например: 100000'
+    );
+    state.state = FSM_STATES.SEARCH_WAITING_BUDGET;
+    setUserState(userId, state);
+    return;
+  }
+  if (!asked) {
+    await showSearchSummary(bot, chatId, userId);
+  }
+}
+
+/**
+ * Обработать длительность поездки (ночей)
+ */
+export async function handleTripDuration(
+  bot: TelegramBot,
+  chatId: number,
+  userId: string,
+  nightsText: string
+): Promise<void> {
+  const state = getUserState(userId);
+  if (!state?.searchData) return;
+  const nights = parseInt(nightsText.replace(/\D+/g, ''));
+  if (!Number.isFinite(nights) || nights < 1) {
+    await bot.sendMessage(chatId, '❌ Введите число ночей, например: 7');
+    return;
+  }
+  state.searchData.tripDuration = nights;
+  setUserState(userId, state);
+  // после длительности спросим бюджет
+  await ensureBudgetAndDuration(bot, chatId, userId);
+}
+
+/**
+ * Обработать бюджет (руб./чел.)
+ */
+export async function handleBudget(
+  bot: TelegramBot,
+  chatId: number,
+  userId: string,
+  budgetText: string
+): Promise<void> {
+  const state = getUserState(userId);
+  if (!state?.searchData) return;
+  const budget = parseInt(budgetText.replace(/\D+/g, ''));
+  if (!Number.isFinite(budget) || budget < 10000) {
+    await bot.sendMessage(chatId, '❌ Укажите бюджет числом, например: 100000');
+    return;
+  }
+  state.searchData.budget = budget;
+  // завершаем сбор параметров
+  state.state = FSM_STATES.SEARCH_CONFIRMING_PARAMS;
+  setUserState(userId, state);
+  await showSearchSummary(bot, chatId, userId);
+}
+
+/**
  * Обработать количество детей
  */
 export async function handleChildrenCount(
@@ -279,7 +411,7 @@ export async function handleChildrenAges(
   setUserState(userId, state);
   
   // Показываем итоговые параметры
-  await showSearchSummary(bot, chatId, userId);
+  await ensureBudgetAndDuration(bot, chatId, userId);
 }
 
 /**
@@ -362,9 +494,15 @@ export async function performTourSearch(
   const data = state.searchData;
   
   // Проверяем обязательные параметры
-  if (!data.departureCity || !data.adultsCount || !data.countries || data.countries.length === 0) {
-    await bot.sendMessage(chatId, '❌ Не хватает обязательных параметров для поиска');
-    return;
+  // Заполним дефолты, если чего-то не хватает (страна/вылет/взрослые)
+  if (!data.countries || data.countries.length === 0) {
+    data.countries = ['Турция'];
+  }
+  if (!data.departureCity) {
+    data.departureCity = 'Москва';
+  }
+  if (!data.adultsCount || data.adultsCount < 1) {
+    data.adultsCount = 2;
   }
   
   try {

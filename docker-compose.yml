@@ -86,6 +86,8 @@ services:
         condition: service_healthy
     volumes:
       - ./logs:/app/logs
+    command: tail -f /dev/null
+    entrypoint: tail -f /dev/null
       - /app/node_modules
     deploy:
       resources:

@@ -6,6 +6,8 @@ import { analyzeTourRequest } from './openrouter';
 import { searchTours } from '../providers';
 import { sendTourNotification } from '../bot/notifications';
 
+const queuesDisabled = process.env.DISABLE_QUEUES === 'true';
+
 // Redis конфигурация для Bull
 const redisConfig = {
   port: parseInt(process.env.REDIS_PORT || '6379'),
@@ -14,40 +16,53 @@ const redisConfig = {
   db: parseInt(process.env.REDIS_DB || '0')
 };
 
-// Создаем очереди
-export const tourMonitoringQueue = new Bull('tour-monitoring', {
+// Создаем очереди (или заглушки, если отключены)
+export const tourMonitoringQueue: any = queuesDisabled ? {
+  add: async () => undefined,
+  process: () => undefined,
+  on: () => undefined,
+  getRepeatableJobs: async () => [],
+  removeRepeatableByKey: async () => undefined,
+  clean: async () => undefined,
+} : new Bull('tour-monitoring', {
   redis: redisConfig,
   defaultJobOptions: {
     removeOnComplete: 100,
     removeOnFail: 50,
     attempts: 3,
-    backoff: {
-      type: 'exponential',
-      delay: 2000
-    }
+    backoff: { type: 'exponential', delay: 2000 }
   }
 });
 
-export const aiAnalysisQueue = new Bull('ai-analysis', {
+export const aiAnalysisQueue: any = queuesDisabled ? {
+  add: async () => undefined,
+  process: () => undefined,
+  on: () => undefined,
+  clean: async () => undefined,
+  getJobCounts: async () => ({})
+} : new Bull('ai-analysis', {
   redis: redisConfig,
   defaultJobOptions: {
     removeOnComplete: 50,
     removeOnFail: 25,
     attempts: 2,
-    timeout: 30000 // 30 секунд
+    timeout: 30000
   }
 });
 
-export const notificationQueue = new Bull('notifications', {
+export const notificationQueue: any = queuesDisabled ? {
+  add: async () => undefined,
+  process: () => undefined,
+  on: () => undefined,
+  clean: async () => undefined,
+  getJobCounts: async () => ({})
+} : new Bull('notifications', {
   redis: redisConfig,
   defaultJobOptions: {
     removeOnComplete: 200,
     removeOnFail: 100,
     attempts: 5,
-    backoff: {
-      type: 'fixed',
-      delay: 5000
-    }
+    backoff: { type: 'fixed', delay: 5000 }
   }
 });
 
@@ -71,7 +86,7 @@ interface NotificationJobData {
 }
 
 // Обработчики очередей
-tourMonitoringQueue.process(async (job: Job<MonitoringJobData>) => {
+!queuesDisabled && tourMonitoringQueue.process(async (job: Job<MonitoringJobData>) => {
   const { userId, profileId, taskType, groupId } = job.data;
   
   logger.info(`Processing monitoring job ${job.id} for user ${userId}`);
@@ -103,7 +118,7 @@ tourMonitoringQueue.process(async (job: Job<MonitoringJobData>) => {
   }
 });
 
-aiAnalysisQueue.process(async (job: Job<AIAnalysisJobData>) => {
+!queuesDisabled && aiAnalysisQueue.process(async (job: Job<AIAnalysisJobData>) => {
   const { message, userId } = job.data;
   
   logger.info(`Processing AI analysis job ${job.id}`);
@@ -119,7 +134,7 @@ aiAnalysisQueue.process(async (job: Job<AIAnalysisJobData>) => {
   }
 });
 
-notificationQueue.process(async (job: Job<NotificationJobData>) => {
+!queuesDisabled && notificationQueue.process(async (job: Job<NotificationJobData>) => {
   const { type, userId, data } = job.data;
   
   logger.info(`Processing notification job ${job.id} for user ${userId}`);
@@ -150,27 +165,27 @@ notificationQueue.process(async (job: Job<NotificationJobData>) => {
 });
 
 // Обработчики событий очередей
-tourMonitoringQueue.on('completed', (job, result) => {
+!queuesDisabled && tourMonitoringQueue.on('completed', (job, result) => {
   logger.debug(`Monitoring job ${job.id} completed`);
 });
 
-tourMonitoringQueue.on('failed', (job, err) => {
+!queuesDisabled && tourMonitoringQueue.on('failed', (job, err) => {
   logger.error(`Monitoring job ${job.id} failed:`, err);
 });
 
-aiAnalysisQueue.on('completed', (job, result) => {
+!queuesDisabled && aiAnalysisQueue.on('completed', (job, result) => {
   logger.debug(`AI analysis job ${job.id} completed`);
 });
 
-aiAnalysisQueue.on('failed', (job, err) => {
+!queuesDisabled && aiAnalysisQueue.on('failed', (job, err) => {
   logger.error(`AI analysis job ${job.id} failed:`, err);
 });
 
-notificationQueue.on('completed', (job, result) => {
+!queuesDisabled && notificationQueue.on('completed', (job, result) => {
   logger.debug(`Notification job ${job.id} completed`);
 });
 
-notificationQueue.on('failed', (job, err) => {
+!queuesDisabled && notificationQueue.on('failed', (job, err) => {
   logger.error(`Notification job ${job.id} failed:`, err);
 });
 

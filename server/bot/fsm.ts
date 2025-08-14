@@ -20,6 +20,8 @@ export enum FSM_STATES {
   SEARCH_WAITING_CHILDREN_INFO = 'search_waiting_children_info',
   SEARCH_WAITING_CHILDREN_COUNT = 'search_waiting_children_count',
   SEARCH_WAITING_CHILDREN_AGES = 'search_waiting_children_ages',
+  SEARCH_WAITING_DURATION = 'search_waiting_duration',
+  SEARCH_WAITING_BUDGET = 'search_waiting_budget',
   SEARCH_CONFIRMING_PARAMS = 'search_confirming_params'
 }
 
