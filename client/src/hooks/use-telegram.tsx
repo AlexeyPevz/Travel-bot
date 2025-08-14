@@ -16,6 +16,7 @@ export function useTelegram() {
   const [inTelegram, setInTelegram] = useState<boolean | null>(null);
   const [user, setUser] = useState<WebAppUser | null>(null);
   const [isReady, setIsReady] = useState(false);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
   
   useEffect(() => {
     // Initialize Telegram WebApp
@@ -25,11 +26,13 @@ export function useTelegram() {
     const isTelegram = isRunningInTelegram();
     setInTelegram(isTelegram);
     
-    // Get user data if running inside Telegram
+    // Get user data and authenticate
     (async () => {
-      if (isTelegram) {
-        const telegramUser = getTelegramUser();
+      // Always try to get user, even in dev mode
+      const telegramUser = getTelegramUser();
+      if (telegramUser) {
         setUser(telegramUser);
+        
         // Perform Telegram auth to obtain JWT tokens
         try {
           const webApp = getTelegramWebApp();
@@ -39,10 +42,14 @@ export function useTelegram() {
             const body = await res.json();
             if ((body as any)?.accessToken) {
               localStorage.setItem('accessToken', (body as any).accessToken);
+              setIsAuthenticated(true);
+              // Invalidate all queries to refetch with new token
+              const { queryClient } = await import('@/lib/queryClient');
+              queryClient.invalidateQueries();
             }
           }
-        } catch {
-          // ignore auth errors
+        } catch (error) {
+          console.error('Telegram auth error:', error);
         }
       }
       setIsReady(true);
@@ -54,5 +61,6 @@ export function useTelegram() {
     user,
     userId: user?.id.toString() || null,
     isReady,
+    isAuthenticated,
   };
 }

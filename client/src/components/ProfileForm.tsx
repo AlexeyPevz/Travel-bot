@@ -153,10 +153,11 @@ const ProfileForm = ({ existingProfile, userId, onSuccess }: ProfileFormProps) =
         variant: "default"
       });
       
-      // Инвалидируем кэш, чтобы обновить данные профиля
+      // Инвалидируем кэш, чтобы обновить данные профиля и туров
       import('@/lib/queryClient').then(module => {
         const queryClient = module.queryClient;
         queryClient.invalidateQueries({ queryKey: [`/api/v1/profile/${userId}`] });
+        queryClient.invalidateQueries({ queryKey: [`/api/tours`] });
       });
       
       onSuccess();

@@ -263,21 +263,29 @@ export async function registerRoutes(app: Express, httpServer?: Server): Promise
           .limit(1);
 
         if (profile) {
+          const countries = profile.countries as string[] || [];
           searchParams = {
-            countries: profile.countries as string[],
+            destination: countries[0] || 'Турция',
             budget: profile.budget || undefined,
-            startDate: profile.startDate || undefined,
-            endDate: profile.endDate || undefined,
-            duration: profile.tripDuration || undefined,
-            peopleCount: profile.adults || 2
+            startDate: profile.startDate ? new Date(profile.startDate) : undefined,
+            endDate: profile.endDate ? new Date(profile.endDate) : undefined,
+            tripDuration: profile.tripDuration || undefined,
+            departureCity: (profile as any).departureCity || 'Москва',
+            adults: profile.adults || 2,
+            children: profile.children || 0,
+            childrenAges: (profile as any).childrenAges || []
           };
         }
       } else {
+        const countriesList = countries ? (countries as string).split(',') : ['Турция'];
         searchParams = {
-          countries: countries ? (countries as string).split(',') : undefined,
+          destination: countriesList[0],
           budget: budget ? parseInt(budget as string) : undefined,
           startDate: startDate ? new Date(startDate as string) : undefined,
-          endDate: endDate ? new Date(endDate as string) : undefined
+          endDate: endDate ? new Date(endDate as string) : undefined,
+          departureCity: 'Москва',
+          adults: 2,
+          children: 0
         };
       }
 

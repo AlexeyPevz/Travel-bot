@@ -22,6 +22,9 @@ export enum FSM_STATES {
   SEARCH_WAITING_CHILDREN_AGES = 'search_waiting_children_ages',
   SEARCH_WAITING_DURATION = 'search_waiting_duration',
   SEARCH_WAITING_BUDGET = 'search_waiting_budget',
+  SEARCH_WAITING_STAR_RATING = 'search_waiting_star_rating',
+  SEARCH_WAITING_MEAL_TYPE = 'search_waiting_meal_type',
+  SEARCH_WAITING_RESORT = 'search_waiting_resort',
   SEARCH_CONFIRMING_PARAMS = 'search_confirming_params'
 }
 
@@ -49,6 +52,8 @@ export interface TourSearchData {
   hotelStars?: number[];
   mealType?: string;
   beachLine?: number;
+  starRating?: number;  // Минимальная звездность отеля
+  resort?: string;      // Конкретный курорт/регион
 }
 
 // User state type

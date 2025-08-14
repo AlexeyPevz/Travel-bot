@@ -6,6 +6,7 @@ export const profiles = pgTable('profiles', {
   id: serial('id').primaryKey(),
   userId: text('user_id').notNull().unique(),
   name: text('name'),
+  departureCity: text('departure_city'), // Город вылета
   vacationType: text('vacation_type'), // Тип отдыха
   countries: jsonb('countries'), // массив предпочитаемых стран
   budget: integer('budget'), // максимальный бюджет

@@ -63,15 +63,8 @@ export default function ToursPage() {
     error: toursError,
     refetch: refetchTours
   } = useQuery({
-    queryKey: userId ? [`/api/tours`, { userId, sortBy }] : null,
+    queryKey: userId ? [`/api/tours?userId=${userId}&sortBy=${sortBy}`] : null,
     enabled: !!userId && !!profile,
-    queryFn: async () => {
-      const response = await fetch(`/api/tours?userId=${userId}&sortBy=${sortBy}`);
-      if (!response.ok) {
-        throw new Error('Ошибка загрузки туров');
-      }
-      return response.json();
-    }
   });
 
   // Handle error

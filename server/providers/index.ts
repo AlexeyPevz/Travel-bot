@@ -33,6 +33,11 @@ export interface TourSearchParams {
   adults?: number;           // Количество взрослых (по умолчанию 2)
   children?: number;         // Количество детей (по умолчанию 0)
   childrenAges?: number[];   // Возраст детей
+  
+  // Дополнительные параметры для фильтрации
+  minStarRating?: number;    // Минимальная звездность отеля
+  mealType?: string;         // Тип питания
+  resort?: string;           // Конкретный курорт/регион
 }
 
 // Tour data interface
