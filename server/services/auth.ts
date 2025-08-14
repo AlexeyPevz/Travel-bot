@@ -127,49 +127,33 @@ export async function refreshTokens(refreshToken: string): Promise<{
   refreshToken: string;
   expiresIn: number;
 }> {
-  if (refreshBusy.has(refreshToken)) {
+  const JWT = getJwtConfig();
+  const decoded = jwt.verify(refreshToken, JWT.REFRESH_TOKEN_SECRET, {
+    issuer: JWT.ISSUER,
+    audience: JWT.AUDIENCE
+  }) as DecodedToken;
+
+  if (decoded.type !== 'refresh') {
+    throw new AuthenticationError('Invalid token type');
+  }
+
+  const exists = await cache.get(`refresh_token:${decoded.userId}:${refreshToken}`);
+  if (!exists) {
     throw new AuthenticationError('Refresh token invalidated or not found');
   }
-  refreshBusy.add(refreshToken);
-  try {
-    if (inFlightRefresh.has(refreshToken)) {
-      throw new AuthenticationError('Refresh token invalidated or not found');
-    }
-    const task = (async () => {
-      const JWT = getJwtConfig();
-      const decoded = jwt.verify(refreshToken, JWT.REFRESH_TOKEN_SECRET, {
-        issuer: JWT.ISSUER,
-        audience: JWT.AUDIENCE
-      }) as DecodedToken;
 
-      if (decoded.type !== 'refresh') {
-        throw new AuthenticationError('Invalid token type');
-      }
+  await cache.del(`refresh_token:${decoded.userId}:${refreshToken}`);
 
-      const exists = await cache.get(`refresh_token:${decoded.userId}:${refreshToken}`);
-      if (!exists) {
-        throw new AuthenticationError('Refresh token invalidated or not found');
-      }
-
-      await cache.del(`refresh_token:${decoded.userId}:${refreshToken}`);
-
-      const userExists = await checkUserExists(decoded.userId);
-      if (!userExists) {
-        throw new AuthenticationError('User not found');
-      }
-
-      return generateTokens({
-        userId: decoded.userId,
-        telegramId: decoded.telegramId,
-        username: decoded.username
-      });
-    })();
-    inFlightRefresh.set(refreshToken, task);
-    return await task;
-  } finally {
-    inFlightRefresh.delete(refreshToken);
-    refreshBusy.delete(refreshToken);
+  const userExists = await checkUserExists(decoded.userId);
+  if (!userExists) {
+    throw new AuthenticationError('User not found');
   }
+
+  return generateTokens({
+    userId: decoded.userId,
+    telegramId: decoded.telegramId,
+    username: decoded.username
+  });
 }
 
 export async function revokeRefreshToken(userId: string, refreshToken: string): Promise<void> {
@@ -186,7 +170,6 @@ export async function invalidateAllTokens(userId: string): Promise<void> {
 
 export async function blacklistUser(userId: string): Promise<void> {
   try {
-    // Use a long TTL to satisfy tests (and allow auto-expiry in non-prod)
     await cache.set(`blacklist:${userId}`, '1', CACHE_TTL.REFRESH_TOKEN);
   } catch (e) {
     throw new Error('Failed to blacklist user');
@@ -201,9 +184,6 @@ export async function isUserBlacklisted(userId: string): Promise<boolean> {
   const value = await cache.get(`blacklist:${userId}`);
   return !!value;
 }
-
-const inFlightRefresh = new Map<string, Promise<{ accessToken: string; refreshToken: string; expiresIn: number }>>();
-const refreshBusy = new Set<string>();
 
 export function decodeToken(token: string): DecodedToken | null {
   try { return jwt.decode(token) as DecodedToken; } catch { return null; }
