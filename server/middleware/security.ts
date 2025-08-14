@@ -95,8 +95,15 @@ export function setupSecurity(app: Express) {
 
   // CORS
   app.use((req, res, next) => {
-    const origin = req.headers.origin;
-    if (origin && (origin.includes('localhost') || origin.includes(process.env.APP_URL || ''))) {
+    const origin = req.headers.origin || '';
+    const appUrl = process.env.APP_URL || '';
+    const allowedOrigins = [
+      'http://localhost:3000',
+      'http://localhost:5000',
+      appUrl
+    ].filter(Boolean);
+
+    if (allowedOrigins.includes(origin)) {
       res.setHeader('Access-Control-Allow-Origin', origin);
       res.setHeader('Access-Control-Allow-Credentials', 'true');
       res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
@@ -116,7 +123,12 @@ export function setupSecurity(app: Express) {
 
   // CSRF protection for non-API routes
   app.use((req: Request, res: Response, next: NextFunction) => {
-    if (req.path.startsWith('/api/webhook') || req.path.startsWith('/api/telegram')) {
+    if (req.path.startsWith('/api/telegram') || req.path.startsWith('/api/webhook')) {
+      return next();
+    }
+
+    // Для чистого JSON API под JWT можно отключить CSRF
+    if (req.path.startsWith('/api')) {
       return next();
     }
 

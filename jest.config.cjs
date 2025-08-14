@@ -23,8 +23,10 @@ module.exports = {
     '^.+\\.tsx?$': ['ts-jest', {
       tsconfig: {
         esModuleInterop: true,
-        allowSyntheticDefaultImports: true
-      }
+        allowSyntheticDefaultImports: true,
+        isolatedModules: true
+      },
+      diagnostics: false
     }]
   }
 };

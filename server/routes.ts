@@ -1,6 +1,5 @@
 import { Express, Request, Response } from 'express';
 import { Server } from 'http';
-import { createServer } from 'http';
 import { z } from 'zod';
 import { db } from '../db';
 import { profiles, tours, tourMatches, groupProfiles, watchlists, tourPriorities } from '@shared/schema';
@@ -31,7 +30,6 @@ import {
 import { asyncHandler, NotFoundError, ValidationError } from './utils/errors';
 import apiLogger from './utils/logger';
 import { getHealthStatus, getReadinessStatus, getLivenessStatus } from './monitoring/health';
-import { setupMetrics } from './monitoring/metrics';
 import { cache, cacheKeys, CACHE_TTL } from './services/cache';
 import { apiVersionMiddleware } from './middleware/apiVersion';
 import v1Routes from './routes/v1';
@@ -41,15 +39,13 @@ import { requireAuth, optionalAuth, authorizeOwner } from './middleware/auth';
 import { fetchToursFromAllProviders } from './providers/providers';
 import { hotelDeduplicationService } from './services/hotelDeduplication';
 
-export async function registerRoutes(app: Express): Promise<Server> {
-  const server = createServer(app);
-
+export async function registerRoutes(app: Express, httpServer?: Server): Promise<void> {
   // Запускаем бота НЕБЛОКИРУЮЩЕ, если не отключен флагом
   const disableBot = process.env.DISABLE_BOT === 'true';
-  if (!disableBot) {
+  if (!disableBot && httpServer) {
     (async () => {
       try {
-        await startBot(server);
+        await startBot(httpServer);
       } catch (err) {
         console.error('Bot startup failed, continuing without bot:', err);
       }
@@ -64,9 +60,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.error('Monitoring startup failed:', err);
     }
   })();
-
-  // Setup Prometheus metrics
-  setupMetrics(app);
 
   // API versioning middleware
   app.use('/api', apiVersionMiddleware);
@@ -210,6 +203,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Инвалидируем кэш
       await cache.del(cacheKeys.profile(userId));
+      // Сбрасываем кэш поисков туров (параметры зависят от профиля)
+      await cache.clearPattern('tours:search:*');
       
       res.json(profile);
     }));
@@ -286,7 +281,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         };
       }
 
-      const tours = await searchTours(searchParams);
+      // Попытка отдать из кэша
+      const toursCacheKey = cacheKeys.tourSearch({ ...(searchParams || {}), userId: userId || null });
+      const cachedTours = await cache.get<any[]>(toursCacheKey);
+      if (cachedTours) {
+        return res.json({ tours: cachedTours });
+      }
+
+      const found = await searchTours(searchParams);
 
       // Если есть профиль, считаем соответствие
       if (userId) {
@@ -297,7 +299,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
         if (profile && profile.priorities) {
           const toursWithScores = await Promise.all(
-            tours.map(async (tour: any) => {
+            found.map(async (tour: any) => {
               const { score, details, analysis } = await calculateTourMatchScore(
                 tour,
                 searchParams,
@@ -309,11 +311,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
           // Сортируем по соответствию
           toursWithScores.sort((a: any, b: any) => b.matchScore - a.matchScore);
-          return res.json(toursWithScores);
+          await cache.set(toursCacheKey, toursWithScores, CACHE_TTL.TOUR_SEARCH);
+          return res.json({ tours: toursWithScores });
         }
       }
 
-      res.json(tours);
+      await cache.set(toursCacheKey, found, CACHE_TTL.TOUR_SEARCH);
+      res.json({ tours: found });
       } catch (error) {
         apiLogger.error('Error searching tours:', error);
         res.status(500).json({ error: 'Internal server error' });
@@ -533,6 +537,4 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
     }
   });
-
-  return server;
 }
