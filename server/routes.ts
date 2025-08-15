@@ -33,6 +33,7 @@ import { getHealthStatus, getReadinessStatus, getLivenessStatus } from './monito
 import { cache, cacheKeys, CACHE_TTL } from './services/cache';
 import { apiVersionMiddleware } from './middleware/apiVersion';
 import v1Routes from './routes/v1';
+import v2Routes from './routes/v2';
 import { setupSwagger } from './docs/swagger';
 import authRoutes from './routes/auth';
 import { requireAuth, optionalAuth, authorizeOwner } from './middleware/auth';
@@ -85,6 +86,7 @@ export async function registerRoutes(app: Express, httpServer?: Server): Promise
 
   // Mount versioned routes
   app.use('/api/v1', v1Routes);
+  app.use('/api/v2', v2Routes);
 
   // Setup Swagger documentation
   setupSwagger(app);
@@ -240,6 +242,9 @@ export async function registerRoutes(app: Express, httpServer?: Server): Promise
           .where(eq(profiles.userId, userId));
       }
 
+        // Optional sort param for legacy
+        const sortBy = (req.query.sortBy as string) || 'match';
+        (preferences as any)._sortBy = sortBy;
         res.json(preferences);
       } catch (error) {
         apiLogger.error('Error analyzing request:', error);
@@ -252,7 +257,7 @@ export async function registerRoutes(app: Express, httpServer?: Server): Promise
     validateQuery(tourSearchSchema),
     asyncHandler(async (req: Request, res: Response) => {
       try {
-      const { userId, countries, budget, startDate, endDate } = req.query;
+      const { userId, countries, budget, startDate, endDate } = req.query as any;
 
       let searchParams: any = {};
       
@@ -293,7 +298,10 @@ export async function registerRoutes(app: Express, httpServer?: Server): Promise
       const toursCacheKey = cacheKeys.tourSearch({ ...(searchParams || {}), userId: userId || null });
       const cachedTours = await cache.get<any[]>(toursCacheKey);
       if (cachedTours) {
-        return res.json({ tours: cachedTours });
+        // Apply optional sort
+        const sortBy = ((req.query as any).sortBy as string) || 'match';
+        const sorted = sortTours(cachedTours, sortBy);
+        return res.json({ tours: sorted });
       }
 
       const found = await searchTours(searchParams);
@@ -317,15 +325,18 @@ export async function registerRoutes(app: Express, httpServer?: Server): Promise
             })
           );
 
-          // Сортируем по соответствию
-          toursWithScores.sort((a: any, b: any) => b.matchScore - a.matchScore);
-          await cache.set(toursCacheKey, toursWithScores, CACHE_TTL.TOUR_SEARCH);
-          return res.json({ tours: toursWithScores });
+          // Сортируем по соответствию либо по параметру sortBy
+          const sortBy = ((req.query as any).sortBy as string) || 'match';
+          const sorted = sortTours(toursWithScores, sortBy);
+          await cache.set(toursCacheKey, sorted, CACHE_TTL.TOUR_SEARCH);
+          return res.json({ tours: sorted });
         }
       }
 
-      await cache.set(toursCacheKey, found, CACHE_TTL.TOUR_SEARCH);
-      res.json({ tours: found });
+      const sortBy = ((req.query as any).sortBy as string) || 'price';
+      const sorted = sortTours(found, sortBy);
+      await cache.set(toursCacheKey, sorted, CACHE_TTL.TOUR_SEARCH);
+      res.json({ tours: sorted });
       } catch (error) {
         apiLogger.error('Error searching tours:', error);
         res.status(500).json({ error: 'Internal server error' });
@@ -545,4 +556,23 @@ export async function registerRoutes(app: Express, httpServer?: Server): Promise
       });
     }
   });
+}
+
+function sortTours(list: any[], sortBy: string): any[] {
+  const arr = list.slice();
+  switch (sortBy) {
+    case 'price':
+      arr.sort((a: any, b: any) => (a.price ?? 0) - (b.price ?? 0));
+      break;
+    case 'stars':
+      arr.sort((a: any, b: any) => (b.hotelStars ?? 0) - (a.hotelStars ?? 0));
+      break;
+    case 'rating':
+      arr.sort((a: any, b: any) => (b.rating ?? 0) - (a.rating ?? 0));
+      break;
+    case 'match':
+    default:
+      arr.sort((a: any, b: any) => (b.matchScore ?? 0) - (a.matchScore ?? 0));
+  }
+  return arr;
 }
