@@ -564,21 +564,8 @@ export async function registerRoutes(app: Express, httpServer?: Server): Promise
 }
 
 // TODO: deprecate and move to a shared util used by v1/v2 routes only
+// Re-exporting imported util for legacy internal calls above
+import { sortTours as sortToursUtil } from './utils/tours';
 function sortTours(list: any[], sortBy: string): any[] {
-  const arr = list.slice();
-  switch (sortBy) {
-    case 'price':
-      arr.sort((a: any, b: any) => (a.price ?? 0) - (b.price ?? 0));
-      break;
-    case 'stars':
-      arr.sort((a: any, b: any) => (b.hotelStars ?? 0) - (a.hotelStars ?? 0));
-      break;
-    case 'rating':
-      arr.sort((a: any, b: any) => (b.rating ?? 0) - (a.rating ?? 0));
-      break;
-    case 'match':
-    default:
-      arr.sort((a: any, b: any) => (b.matchScore ?? 0) - (a.matchScore ?? 0));
-  }
-  return arr;
+  return sortToursUtil(list, (sortBy as any) || 'match');
 }
