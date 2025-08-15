@@ -126,6 +126,11 @@ function createLevelTravelHeaders(apiKey: string) {
   };
 }
 
+function isWifiFree(features: any): boolean {
+  const v = features?.wi_f_i ?? features?.wi_fi;
+  return String(v).toUpperCase() === 'FREE';
+}
+
 /**
  * Стандартизирует и обогащает данные об отеле, сохраняя исходный формат API Level.Travel
  * и преобразуя их в формат, понятный нашему приложению
@@ -620,7 +625,7 @@ export async function fetchToursFromLevelTravel(params: TourSearchParams): Promi
             beachType: hotel.features?.beach_type || undefined,
             beachSurface: hotel.features?.beach_surface || undefined,
             airportDistance: hotel.features?.airport_distance || undefined,
-            hasWifi: hotel.features?.wi_f_i === 'FREE' || hotel.features?.wi_fi === 'PAID',
+            hasWifi: isWifiFree(hotel.features),
             hasPool: hotel.features?.pool || false,
             hasKidsClub: hotel.features?.kids_club || false,
             hasFitness: hotel.features?.fitness || false,

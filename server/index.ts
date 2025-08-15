@@ -9,6 +9,10 @@ import { dynamicRateLimiter } from "./middleware/rateLimiter";
 import { setupMetrics } from "./monitoring/metrics";
 import logger, { stream } from "./utils/logger";
 import morgan from "morgan";
+import { validateEnv } from './config/env';
+
+// Validate environment configuration
+validateEnv(process.env);
 
 const app = express();
 export { app };
@@ -25,8 +29,9 @@ app.use(morgan('combined', { stream }));
 // Setup metrics
 setupMetrics(app);
 
-app.use(express.json());
-app.use(express.urlencoded({ extended: false }));
+// Body parsers with sane limits
+app.use(express.json({ limit: '1mb' }));
+app.use(express.urlencoded({ extended: false, limit: '1mb' }));
 app.use(sanitizeBody);
 
 // Apply rate limiting to all API routes
@@ -47,7 +52,8 @@ app.use((req, res, next) => {
 		const duration = Date.now() - start;
 		if (path.startsWith("/api")) {
 			let logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
-			if (capturedJsonResponse) {
+			// Avoid serializing full JSON bodies in production
+			if (process.env.NODE_ENV !== 'production' && capturedJsonResponse) {
 				logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
 			}
 
@@ -70,7 +76,7 @@ export { server };
 	const http = await import('http');
 	server = http.createServer(app);
 
-	const port = 5000;
+	const port = Number(process.env.PORT ?? 5000);
 	server.listen({
 		port,
 		host: "0.0.0.0",

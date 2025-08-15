@@ -50,6 +50,17 @@ export const cacheKeys = {
   userPriorities: (userId: string) => `priorities:${userId}`,
 };
 
+async function scanKeys(pattern: string, count = 1000): Promise<string[]> {
+  const keys: string[] = [];
+  let cursor = '0';
+  do {
+    const [next, batch] = await redis.scan(cursor, 'MATCH', pattern, 'COUNT', String(count));
+    cursor = next;
+    if (Array.isArray(batch)) keys.push(...batch);
+  } while (cursor !== '0');
+  return keys;
+}
+
 // Основные функции кэша
 export const cache = {
   // Получить значение из кэша
@@ -88,12 +99,14 @@ export const cache = {
   async del(key: string | string[]): Promise<number> {
     try {
       if (Array.isArray(key)) {
-        return await redis.del(...key);
+        const res = await redis.del(...key);
+        logger.debug(`Deleted cache key(s): ${key.join(',')}`);
+        return res;
       } else {
-        return await redis.del(key);
+        const res = await redis.del(key);
+        logger.debug(`Deleted cache key: ${key}`);
+        return res;
       }
-      
-      logger.debug(`Deleted cache key(s): ${key}`);
     } catch (error) {
       logger.error(`Cache delete error for key ${key}:`, error);
       throw error;
@@ -103,7 +116,7 @@ export const cache = {
   // Очистить кэш по паттерну
   async clearPattern(pattern: string): Promise<void> {
     try {
-      const keys = await redis.keys(pattern);
+      const keys = await scanKeys(pattern);
       if (keys.length > 0) {
         await redis.del(...keys);
         logger.info(`Cleared ${keys.length} cache keys matching pattern: ${pattern}`);

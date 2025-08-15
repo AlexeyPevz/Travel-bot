@@ -531,7 +531,9 @@ function parseBasicTourRequest(text: string): TourPreferences {
 
   // Цена
   if (lowerText.includes('бюджет') || lowerText.includes('недорого') || lowerText.includes('эконом')) {
-    priorities.price = 9;
+    // поддерживаем оба ключа для совместимости
+    (priorities as any).price = 9;
+    (priorities as any).priceValue = 9;
   }
 
   result.priorities = priorities;
@@ -586,12 +588,13 @@ export async function calculateTourMatchScore(
   }
 
   // Соответствие по цене
-  if (preferences.budget && priorities.price) {
+  const priceWeight = (priorities as any).priceValue ?? (priorities as any).price;
+  if (preferences.budget && priceWeight) {
     const priceRatio = tour.price / preferences.budget;
     const priceScore = priceRatio <= 1 ? (1 - priceRatio) * 100 + 50 : Math.max(0, 100 - (priceRatio - 1) * 100);
     details.price = priceScore;
-    weightedScore += priceScore * priorities.price;
-    totalWeight += priorities.price;
+    weightedScore += priceScore * priceWeight;
+    totalWeight += priceWeight;
   }
 
   // Соответствие по типу питания

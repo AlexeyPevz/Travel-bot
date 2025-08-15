@@ -145,7 +145,7 @@ export const asyncHandler = <T extends Request = Request>(
 /**
  * Глобальный обработчик ошибок для Express
  */
-export const errorHandler = (
+export const deprecatedErrorHandler = (
   err: Error | AppError,
   req: Request,
   res: Response,
@@ -173,7 +173,7 @@ export const errorHandler = (
   }
 
   // Обработка неизвестных ошибок
-  return handleUnknownError(err, res);
+  return handleUnknownError(err as Error, res);
 };
 
 /**
@@ -182,11 +182,11 @@ export const errorHandler = (
 function logError(err: Error | AppError, req: Request) {
   const errorInfo = {
     message: err.message,
-    stack: err.stack,
+    stack: (err as Error).stack,
     url: req.url,
     method: req.method,
     ip: req.ip,
-    userId: (req as any).user?.id,
+    userId: (req as any).user?.userId,
     correlationId: (req as any).correlationId,
   };
 

@@ -3,9 +3,16 @@ import path from "path";
 import { createServer as createViteServer } from "vite";
 import { Server } from "http";
 import express from "express";
+import logger from "./utils/logger";
 
 export function log(...args: any[]) {
-  console.log(...args);
+  try {
+    const msg = args.map(a => (typeof a === 'string' ? a : JSON.stringify(a))).join(' ');
+    logger.info(msg);
+  } catch {
+    // fallback
+    logger.info(String(args.join(' ')));
+  }
 }
 
 export async function setupVite(app: Express, server: Server) {
@@ -38,12 +45,12 @@ export function serveStatic(app: Express) {
       res.setHeader('Cache-Control', 'no-cache, must-revalidate');
     }
     // Medium cache for other static assets
-    else if (['.js', '.css', '.png', '.jpg', '.jpeg', '.gif', '.svg', '.woff', '.woff2'].includes(ext)) {
+    else if ([".js", ".css", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".woff", ".woff2"].includes(ext)) {
       res.setHeader('Cache-Control', 'public, max-age=86400'); // 1 day
     }
     
     // Enable compression headers
-    if (['.js', '.css', '.html', '.json', '.xml', '.svg'].includes(ext)) {
+    if ([".js", ".css", ".html", ".json", ".xml", ".svg"].includes(ext)) {
       res.setHeader('Vary', 'Accept-Encoding');
     }
   };

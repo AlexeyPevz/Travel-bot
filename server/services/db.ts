@@ -11,6 +11,7 @@ export const dbService = {
       if (!tours || tours.length === 0) return [];
 
       const prepared = tours.map((t) => ({
+        providerId: t.provider || null,
         provider: t.provider,
         externalId: t.externalId?.toString() ?? null,
         title: t.title,
