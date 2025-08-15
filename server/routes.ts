@@ -563,6 +563,7 @@ export async function registerRoutes(app: Express, httpServer?: Server): Promise
   });
 }
 
+// TODO: deprecate and move to a shared util used by v1/v2 routes only
 function sortTours(list: any[], sortBy: string): any[] {
   const arr = list.slice();
   switch (sortBy) {
