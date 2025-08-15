@@ -40,8 +40,8 @@ export function setupSecurity(app: Express) {
   // Cookie parser - required for session and CSRF
   app.use(cookieParser(process.env.COOKIE_SECRET || crypto.randomBytes(32).toString('hex')));
 
-  // Session configuration
-  app.use(session({
+  // Session configuration (mount only for non-API routes)
+  const sessionMiddleware = session({
     secret: process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex'),
     resave: false,
     saveUninitialized: false,
@@ -52,7 +52,11 @@ export function setupSecurity(app: Express) {
       sameSite: 'strict',
     },
     name: 'sessionId',
-  }));
+  });
+  app.use((req, res, next) => {
+    if (req.path.startsWith('/api')) return next();
+    return (sessionMiddleware as any)(req, res, next);
+  });
 
   // Basic security headers
   app.use(helmet({
@@ -88,6 +92,7 @@ export function setupSecurity(app: Express) {
 
     if (allowedOrigins.includes(origin)) {
       res.setHeader('Access-Control-Allow-Origin', origin);
+      res.setHeader('Vary', 'Origin');
       res.setHeader('Access-Control-Allow-Credentials', 'true');
       res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
       res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-CSRF-Token');

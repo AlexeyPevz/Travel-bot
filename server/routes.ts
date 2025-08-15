@@ -48,7 +48,7 @@ export async function registerRoutes(app: Express, httpServer?: Server): Promise
       try {
         await startBot(httpServer);
       } catch (err) {
-        console.error('Bot startup failed, continuing without bot:', err);
+        apiLogger.error('Bot startup failed, continuing without bot:', err as any);
       }
     })();
   }
@@ -58,7 +58,7 @@ export async function registerRoutes(app: Express, httpServer?: Server): Promise
     try {
       startMonitoring();
     } catch (err) {
-      console.error('Monitoring startup failed:', err);
+      apiLogger.error('Monitoring startup failed:', err as any);
     }
   })();
 
@@ -162,8 +162,9 @@ export async function registerRoutes(app: Express, httpServer?: Server): Promise
   // Создать или обновить профиль
   app.post('/api/profile', 
     requireAuth,
-    authorizeOwner('userId'),
+    // сначала валидируем тело, потом проверяем владение
     validateBody(createProfileSchema),
+    authorizeOwner('userId'),
     asyncHandler(async (req: Request, res: Response) => {
       const profileData = req.body;
       const { userId, priorities, ...rest } = profileData;

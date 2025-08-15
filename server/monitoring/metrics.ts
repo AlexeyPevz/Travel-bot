@@ -325,6 +325,26 @@ export function metricsMiddleware(req: Request, res: Response, next: any) {
   next();
 }
 
+function metricsAuthGuard(req: Request): boolean {
+  // IP allowlist
+  const allowlist = (process.env.METRICS_IP_ALLOWLIST || '').split(',').map(s => s.trim()).filter(Boolean);
+  if (allowlist.length > 0 && req.ip && !allowlist.includes(req.ip)) {
+    return false;
+  }
+  // Basic Auth
+  const basic = process.env.METRICS_BASIC_AUTH; // format: user:pass
+  if (!basic) return true;
+  const header = req.headers.authorization || '';
+  if (!header.startsWith('Basic ')) return false;
+  const token = header.slice(6);
+  try {
+    const decoded = Buffer.from(token, 'base64').toString('utf8');
+    return decoded === basic;
+  } catch {
+    return false;
+  }
+}
+
 // Setup metrics endpoint
 export function setupMetrics(app: Express) {
   // Add metrics middleware
@@ -332,6 +352,9 @@ export function setupMetrics(app: Express) {
   
   // Metrics endpoint
   app.get('/metrics', (req, res) => {
+    if (process.env.NODE_ENV === 'production' && !metricsAuthGuard(req)) {
+      return res.status(401).set('WWW-Authenticate', 'Basic realm="metrics"').end('Unauthorized');
+    }
     res.set('Content-Type', register.contentType);
     register.metrics().then(metrics => {
       res.end(metrics);

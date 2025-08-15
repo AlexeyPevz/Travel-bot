@@ -99,8 +99,8 @@ export async function verifyAccessToken(token: string): Promise<DecodedToken> {
     }
 
     return decoded;
-  } catch (error) {
-    if ((error as Error).message === 'TokenExpiredError') {
+  } catch (error: any) {
+    if (error?.name === 'TokenExpiredError' || error instanceof jwt.TokenExpiredError) {
       throw new Error('Access token expired');
     }
     if (error instanceof jwt.JsonWebTokenError) {
@@ -142,7 +142,11 @@ export async function refreshTokens(refreshToken: string): Promise<{
     throw new AuthenticationError('Refresh token invalidated or not found');
   }
 
-  await cache.del(`refresh_token:${decoded.userId}:${refreshToken}`);
+  try {
+    await cache.del(`refresh_token:${decoded.userId}:${refreshToken}`);
+  } catch (e) {
+    logger.warn('Failed to delete old refresh token from cache, continuing', { userId: decoded.userId });
+  }
 
   const userExists = await checkUserExists(decoded.userId);
   if (!userExists) {

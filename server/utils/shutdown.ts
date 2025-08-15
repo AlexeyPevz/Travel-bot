@@ -1,7 +1,7 @@
 import { Server } from 'http';
 import logger from './logger';
 import { pool } from '../../db';
-import redis from '../services/cache';
+import { redis as redisClient } from '../services/cache';
 import { 
   tourMonitoringQueue as monitoringQueue, 
   aiAnalysisQueue, 
@@ -307,8 +307,8 @@ class GracefulShutdown {
     logger.info('Closing Redis connection...');
     try {
       // ioredis uses disconnect() method, not quit()
-      if (redis && typeof redis.disconnect === 'function') {
-        await redis.disconnect();
+      if (redisClient && typeof (redisClient as any).disconnect === 'function') {
+        await (redisClient as any).disconnect();
         logger.info('Redis connection closed');
       }
     } catch (error) {
