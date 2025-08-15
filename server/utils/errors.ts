@@ -145,7 +145,7 @@ export const asyncHandler = <T extends Request = Request>(
 /**
  * Глобальный обработчик ошибок для Express
  */
-export const errorHandler = (
+export const deprecatedErrorHandler = (
   err: Error | AppError,
   req: Request,
   res: Response,

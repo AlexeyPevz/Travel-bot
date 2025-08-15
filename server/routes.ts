@@ -260,6 +260,10 @@ export async function registerRoutes(app: Express, httpServer?: Server): Promise
       try {
       const { userId, countries, budget, startDate, endDate } = req.query as any;
 
+      // Mark endpoint as deprecated
+      res.setHeader('Deprecation', 'true');
+      res.setHeader('Link', '</api/v1/tours>; rel="successor-version"');
+
       let searchParams: any = {};
       
       if (userId) {
