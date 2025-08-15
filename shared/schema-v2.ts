@@ -365,9 +365,119 @@ export const tours = pgTable('tours', {
   updatedAt: timestamp('updated_at').defaultNow()
 });
 
+// ========== ФОНОВЫЙ ПОИСК ==========
+
+// Фоновые поисковые задачи
+export const backgroundSearches = pgTable('background_searches', {
+  id: serial('id').primaryKey(),
+  searchRequestId: integer('search_request_id').notNull(), // Связь с основным поиском
+  userId: text('user_id').notNull(),
+  
+  // Параметры мониторинга
+  monitorUntil: date('monitor_until').notNull(), // До какой даты следить
+  checkFrequency: text('check_frequency').default('daily'), // 'hourly' | 'daily' | 'weekly'
+  lastCheckedAt: timestamp('last_checked_at'),
+  
+  // Условия уведомлений
+  notifyConditions: jsonb('notify_conditions').$type<NotifyConditions>(),
+  
+  // Статус
+  isActive: boolean('is_active').default(true),
+  isPaused: boolean('is_paused').default(false),
+  
+  // Статистика
+  checksCount: integer('checks_count').default(0),
+  notificationsCount: integer('notifications_count').default(0),
+  lastNotificationAt: timestamp('last_notification_at'),
+  
+  createdAt: timestamp('created_at').defaultNow(),
+  updatedAt: timestamp('updated_at').defaultNow()
+});
+
+// История найденных туров в фоновом поиске
+export const backgroundSearchResults = pgTable('background_search_results', {
+  id: serial('id').primaryKey(),
+  backgroundSearchId: integer('background_search_id').notNull(),
+  tourId: integer('tour_id').notNull(),
+  
+  // Данные на момент находки
+  price: integer('price').notNull(),
+  priceChange: integer('price_change'), // Изменение цены с прошлой проверки
+  availability: text('availability'),
+  
+  // Причина уведомления
+  notificationReason: text('notification_reason'), // 'new_tour' | 'price_drop' | 'availability_change'
+  
+  // Статус
+  isNotified: boolean('is_notified').default(false),
+  notifiedAt: timestamp('notified_at'),
+  isViewed: boolean('is_viewed').default(false),
+  viewedAt: timestamp('viewed_at'),
+  
+  foundAt: timestamp('found_at').defaultNow()
+});
+
+// Уведомления пользователям
+export const notifications = pgTable('notifications', {
+  id: serial('id').primaryKey(),
+  userId: text('user_id').notNull(),
+  
+  // Тип и источник
+  type: text('type').notNull(), // 'background_search' | 'price_alert' | 'availability' | 'system'
+  sourceId: integer('source_id'), // ID связанной записи (backgroundSearchId, etc)
+  
+  // Содержание
+  title: text('title').notNull(),
+  message: text('message').notNull(),
+  data: jsonb('data'), // Дополнительные данные
+  
+  // Доставка
+  deliveryChannel: text('delivery_channel').default('telegram'), // 'telegram' | 'email' | 'push'
+  deliveryStatus: text('delivery_status').default('pending'), // 'pending' | 'sent' | 'failed'
+  deliveryError: text('delivery_error'),
+  
+  // Статус
+  isRead: boolean('is_read').default(false),
+  readAt: timestamp('read_at'),
+  
+  // Действия
+  actionUrl: text('action_url'), // Ссылка для перехода
+  actionData: jsonb('action_data'), // Данные для callback
+  
+  createdAt: timestamp('created_at').defaultNow(),
+  sentAt: timestamp('sent_at')
+});
+
 // Типы для новых таблиц
 export type UserProfile = typeof userProfiles.$inferSelect;
 export type NewUserProfile = typeof userProfiles.$inferInsert;
 export type SearchRequest = typeof searchRequests.$inferSelect;
 export type NewSearchRequest = typeof searchRequests.$inferInsert;
 export type Tour = typeof tours.$inferSelect;
+
+// Условия для уведомлений в фоновом поиске
+export interface NotifyConditions {
+  // Условия по цене
+  priceDropPercent?: number;      // Уведомить при снижении цены на X%
+  priceDropAmount?: number;        // Уведомить при снижении цены на X рублей
+  priceBelowThreshold?: number;    // Уведомить когда цена ниже X
+  
+  // Условия по новизне
+  notifyNewTours?: boolean;        // Уведомлять о новых турах
+  notifyNewHotels?: boolean;       // Уведомлять о новых отелях
+  
+  // Условия по рейтингу
+  minMatchScore?: number;          // Минимальный score для уведомления (0-100)
+  onlyTopMatches?: boolean;        // Только топ-3 по соответствию
+  
+  // Условия по доступности
+  notifyAvailability?: boolean;    // Уведомить когда появится доступность
+  notifyLastMinute?: boolean;      // Горящие туры
+  
+  // Ограничения
+  maxNotificationsPerDay?: number; // Максимум уведомлений в день
+  quietHours?: {                   // Тихие часы (не беспокоить)
+    start: string; // "22:00"
+    end: string;   // "09:00"
+  };
+}
