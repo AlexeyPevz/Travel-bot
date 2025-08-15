@@ -34,6 +34,7 @@ const corsOptions = {
 
 export function setupSecurity(app: Express) {
   const csrfDisabled = process.env.DISABLE_CSRF === 'true';
+  const isProd = process.env.NODE_ENV === 'production';
   // Trust proxy - required for rate limiting and secure cookies behind reverse proxy
   app.set('trust proxy', 1);
 
@@ -46,7 +47,7 @@ export function setupSecurity(app: Express) {
     resave: false,
     saveUninitialized: false,
     cookie: {
-      secure: process.env.NODE_ENV === 'production',
+      secure: isProd,
       httpOnly: true,
       maxAge: 24 * 60 * 60 * 1000, // 24 hours
       sameSite: 'strict',
@@ -64,7 +65,9 @@ export function setupSecurity(app: Express) {
       directives: {
         defaultSrc: ["'self'"],
         styleSrc: ["'self'", "'unsafe-inline'"],
-        scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'", "https://telegram.org"],
+        scriptSrc: isProd
+          ? ["'self'", "https://telegram.org"]
+          : ["'self'", "'unsafe-inline'", "'unsafe-eval'", "https://telegram.org"],
         imgSrc: ["'self'", "data:", "https:", "blob:"],
         connectSrc: ["'self'", "https://api.telegram.org"],
         fontSrc: ["'self'", "https:", "data:"],
@@ -133,7 +136,7 @@ export function setupSecurity(app: Express) {
       // Optionally set a non-HTTPOnly cookie for client debugging (not required)
       res.cookie('x-csrf-token', token, {
         httpOnly: false,
-        secure: process.env.NODE_ENV === 'production',
+        secure: isProd,
         sameSite: 'strict',
         maxAge: 3600000,
         domain: process.env.COOKIE_DOMAIN || undefined,

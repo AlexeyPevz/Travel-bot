@@ -5,6 +5,7 @@ import { validateBody, validateQuery } from '../../middleware/validation';
 import { asyncHandler } from '../../utils/errors';
 import { createRequestLogger } from '../../middleware/tracing';
 import { trackAsyncOperation, tourSearchTotal, tourSearchDuration } from '../../monitoring/metrics';
+import { sortTours } from '../../utils/tours';
 
 const router = Router();
 
@@ -58,20 +59,7 @@ router.post('/search', validateBody(tourSearchSchema, { errorLabel: 'Validation 
 		}
 
 		// Apply sorting
-		switch (sortBy) {
-			case 'price':
-				processedTours.sort((a: any, b: any) => (a.price ?? 0) - (b.price ?? 0));
-				break;
-			case 'stars':
-				processedTours.sort((a: any, b: any) => (b.hotelStars ?? 0) - (a.hotelStars ?? 0));
-				break;
-			case 'rating':
-				processedTours.sort((a: any, b: any) => (b.rating ?? 0) - (a.rating ?? 0));
-				break;
-			case 'match':
-			default:
-				processedTours.sort((a: any, b: any) => (b.matchScore ?? 0) - (a.matchScore ?? 0));
-		}
+		processedTours = sortTours(processedTours, sortBy);
 
 		// Pagination (non-breaking: if page/pageSize not provided, fallback to limit/offset)
 		const page = Number(searchParams.page) || 1;
@@ -129,20 +117,7 @@ router.get('/', validateQuery(tourSearchSchema, { transformQuery: true }), async
 		} catch {}
 	}
 
-	switch (sortBy) {
-		case 'price':
-			processedTours.sort((a: any, b: any) => (a.price ?? 0) - (b.price ?? 0));
-			break;
-		case 'stars':
-			processedTours.sort((a: any, b: any) => (b.hotelStars ?? 0) - (a.hotelStars ?? 0));
-			break;
-		case 'rating':
-			processedTours.sort((a: any, b: any) => (b.rating ?? 0) - (a.rating ?? 0));
-			break;
-		case 'match':
-		default:
-			processedTours.sort((a: any, b: any) => (b.matchScore ?? 0) - (a.matchScore ?? 0));
-	}
+	processedTours = sortTours(processedTours, sortBy);
 
 	const page = Number(searchParams.page) || 1;
 	const pageSize = Number(searchParams.pageSize) || Number(searchParams.limit) || 20;

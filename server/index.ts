@@ -9,6 +9,10 @@ import { dynamicRateLimiter } from "./middleware/rateLimiter";
 import { setupMetrics } from "./monitoring/metrics";
 import logger, { stream } from "./utils/logger";
 import morgan from "morgan";
+import { validateEnv } from './config/env';
+
+// Validate environment configuration
+validateEnv(process.env);
 
 const app = express();
 export { app };
