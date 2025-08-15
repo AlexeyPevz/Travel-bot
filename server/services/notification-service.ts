@@ -1,4 +1,4 @@
-import { db } from '@/db';
+import { db } from '@db';
 import { notifications } from '@shared/schema-v2';
 import { eq } from 'drizzle-orm';
 import TelegramBot from 'node-telegram-bot-api';

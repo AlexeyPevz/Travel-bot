@@ -33,66 +33,77 @@ app.use(sanitizeBody);
 app.use('/api', dynamicRateLimiter);
 
 app.use((req, res, next) => {
-  const start = Date.now();
-  const path = req.path;
-  let capturedJsonResponse: Record<string, any> | undefined = undefined;
+	const start = Date.now();
+	const path = req.path;
+	let capturedJsonResponse: Record<string, any> | undefined = undefined;
 
-  const originalResJson = res.json;
-  res.json = function (bodyJson, ...args) {
-    capturedJsonResponse = bodyJson;
-    return originalResJson.apply(res, [bodyJson, ...args]);
-  };
+	const originalResJson = res.json;
+	res.json = function (bodyJson, ...args) {
+		capturedJsonResponse = bodyJson;
+		return originalResJson.apply(res, [bodyJson, ...args]);
+	};
 
-  res.on("finish", () => {
-    const duration = Date.now() - start;
-    if (path.startsWith("/api")) {
-      let logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
-      if (capturedJsonResponse) {
-        logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
-      }
+	res.on("finish", () => {
+		const duration = Date.now() - start;
+		if (path.startsWith("/api")) {
+			let logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
+			if (capturedJsonResponse) {
+				logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
+			}
 
-      if (logLine.length > 80) {
-        logLine = logLine.slice(0, 79) + "…";
-      }
+			if (logLine.length > 80) {
+				logLine = logLine.slice(0, 79) + "…";
+			}
 
-      log(logLine);
-    }
-  });
+			log(logLine);
+		}
+	});
 
-  next();
+	next();
 });
 
 let server: import('http').Server | null = null;
 export { server };
 
 (async () => {
-  // Create a basic server and start listening early
-  const http = await import('http');
-  server = http.createServer(app);
+	// Create a basic server and start listening early
+	const http = await import('http');
+	server = http.createServer(app);
 
-  const port = 5000;
-  server.listen({
-    port,
-    host: "0.0.0.0",
-    reusePort: true,
-  }, () => {
-    log(`serving on port ${port}`);
-    logger.info(`Process ID: ${process.pid}`);
-  });
+	const port = 5000;
+	server.listen({
+		port,
+		host: "0.0.0.0",
+		reusePort: true,
+	}, () => {
+		log(`serving on port ${port}`);
+		logger.info(`Process ID: ${process.pid}`);
+	});
 
-  // Register routes (non-blocking bot/monitoring inside)
-  await registerRoutes(app, server);
+	// Register routes (non-blocking bot/monitoring inside)
+	await registerRoutes(app, server);
 
-  // Error handler should be last
-  const { errorHandler } = await import("./middleware/errorHandler");
-  app.use(errorHandler);
+	// Conditionally start background search cron job
+	if (process.env.ENABLE_BACKGROUND_SEARCH === 'true') {
+		try {
+			const { startBackgroundSearchJob } = await import('./jobs/background-search-job');
+			startBackgroundSearchJob();
+			logger.info('Background search cron job started');
+		} catch (err) {
+			logger.error('Failed to start background search cron job', err as any);
+		}
+	}
 
-  if (app.get("env") === "development") {
-    await setupVite(app, server);
-  } else {
-    serveStatic(app);
-  }
+	// Error handler should be last
+	const { errorHandler } = await import("./middleware/errorHandler");
+	app.use(errorHandler);
 
-  const { gracefulShutdown } = await import("./utils/shutdown");
-  gracefulShutdown.setServer(server);
+	if (app.get("env") === "development") {
+		await setupVite(app, server);
+	} else {
+		serveStatic(app);
+	}
+
+	const { gracefulShutdown } = await import("./utils/shutdown");
+	gracefulShutdown.setServer(server);
 })();

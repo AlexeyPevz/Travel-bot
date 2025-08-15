@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { searchTours } from '../../providers';
 import { tourSearchSchema } from '../../validators/schemas';
-import { validateBody } from '../../middleware/validation';
+import { validateBody, validateQuery } from '../../middleware/validation';
 import { asyncHandler } from '../../utils/errors';
 import { createRequestLogger } from '../../middleware/tracing';
 import { trackAsyncOperation, tourSearchTotal, tourSearchDuration } from '../../monitoring/metrics';
@@ -26,8 +26,67 @@ router.post('/search', validateBody(tourSearchSchema, { errorLabel: 'Validation 
 			destination: searchParams.destination, 
 			status: 'success' 
 		});
-		
-		res.json({ tours });
+
+		// Optional scoring/sorting by relevance under flag
+		let processedTours = tours.slice();
+		const useSmartRanking = process.env.ENABLE_SMART_RANKING === 'true';
+		const sortBy = (searchParams.sortBy || 'match') as 'match' | 'price' | 'stars' | 'rating';
+
+		if (useSmartRanking && searchParams.userId) {
+			try {
+				const { db } = await import('../../../db');
+				const { profiles } = await import('@shared/schema');
+				const { eq } = await import('drizzle-orm');
+				const [{ priorities } = {} as any] = await db.select().from(profiles).where(eq(profiles.userId, searchParams.userId)).limit(1);
+				if (priorities) {
+					const { calculateTourMatchScore } = await import('../../services/openrouter');
+					const prefs = {
+						countries: (searchParams.countries as string[] | undefined) || [],
+						budget: searchParams.budget,
+						startDate: searchParams.startDate,
+						endDate: searchParams.endDate,
+						duration: searchParams.duration,
+						peopleCount: searchParams.peopleCount
+					} as any;
+					const withScores = await Promise.all(processedTours.map(async (t: any) => {
+						const { score } = await calculateTourMatchScore(t, prefs, priorities as Record<string, number>);
+						return { ...t, matchScore: score };
+					}));
+					processedTours = withScores;
+				}
+			} catch {}
+		}
+
+		// Apply sorting
+		switch (sortBy) {
+			case 'price':
+				processedTours.sort((a: any, b: any) => (a.price ?? 0) - (b.price ?? 0));
+				break;
+			case 'stars':
+				processedTours.sort((a: any, b: any) => (b.hotelStars ?? 0) - (a.hotelStars ?? 0));
+				break;
+			case 'rating':
+				processedTours.sort((a: any, b: any) => (b.rating ?? 0) - (a.rating ?? 0));
+				break;
+			case 'match':
+			default:
+				processedTours.sort((a: any, b: any) => (b.matchScore ?? 0) - (a.matchScore ?? 0));
+		}
+
+		// Pagination (non-breaking: if page/pageSize not provided, fallback to limit/offset)
+		const page = Number(searchParams.page) || 1;
+		const pageSize = Number(searchParams.pageSize) || Number(searchParams.limit) || 20;
+		const total = processedTours.length;
+		const totalPages = Math.max(1, Math.ceil(total / pageSize));
+		const startIdx = (page - 1) * pageSize;
+		const endIdx = startIdx + pageSize;
+		const paged = processedTours.slice(startIdx, endIdx);
+
+		return res.json({ 
+			tours: paged,
+			pagination: { page, pageSize, total, totalPages },
+			sortBy
+		});
 	} catch (error) {
 		tourSearchTotal.inc({ 
 			destination: searchParams.destination, 
@@ -35,6 +94,65 @@ router.post('/search', validateBody(tourSearchSchema, { errorLabel: 'Validation 
 		});
 		throw error;
 	}
+}));
+
+// GET variant mirrors POST logic using query params
+router.get('/', validateQuery(tourSearchSchema, { transformQuery: true }), asyncHandler(async (req, res) => {
+	const searchParams = req.query as any;
+	const tours = await searchTours(searchParams);
+	let processedTours = tours.slice();
+	const useSmartRanking = process.env.ENABLE_SMART_RANKING === 'true';
+	const sortBy = (searchParams.sortBy || 'match') as 'match' | 'price' | 'stars' | 'rating';
+
+	if (useSmartRanking && searchParams.userId) {
+		try {
+			const { db } = await import('../../../db');
+			const { profiles } = await import('@shared/schema');
+			const { eq } = await import('drizzle-orm');
+			const [{ priorities } = {} as any] = await db.select().from(profiles).where(eq(profiles.userId, searchParams.userId)).limit(1);
+			if (priorities) {
+				const { calculateTourMatchScore } = await import('../../services/openrouter');
+				const prefs = {
+					countries: (searchParams.countries as string[] | undefined) || [],
+					budget: searchParams.budget,
+					startDate: searchParams.startDate,
+					endDate: searchParams.endDate,
+					duration: searchParams.duration,
+					peopleCount: searchParams.peopleCount
+				} as any;
+				const withScores = await Promise.all(processedTours.map(async (t: any) => {
+					const { score } = await calculateTourMatchScore(t, prefs, priorities as Record<string, number>);
+					return { ...t, matchScore: score };
+				}));
+				processedTours = withScores;
+			}
+		} catch {}
+	}
+
+	switch (sortBy) {
+		case 'price':
+			processedTours.sort((a: any, b: any) => (a.price ?? 0) - (b.price ?? 0));
+			break;
+		case 'stars':
+			processedTours.sort((a: any, b: any) => (b.hotelStars ?? 0) - (a.hotelStars ?? 0));
+			break;
+		case 'rating':
+			processedTours.sort((a: any, b: any) => (b.rating ?? 0) - (a.rating ?? 0));
+			break;
+		case 'match':
+		default:
+			processedTours.sort((a: any, b: any) => (b.matchScore ?? 0) - (a.matchScore ?? 0));
+	}
+
+	const page = Number(searchParams.page) || 1;
+	const pageSize = Number(searchParams.pageSize) || Number(searchParams.limit) || 20;
+	const total = processedTours.length;
+	const totalPages = Math.max(1, Math.ceil(total / pageSize));
+	const startIdx = (page - 1) * pageSize;
+	const endIdx = startIdx + pageSize;
+	const paged = processedTours.slice(startIdx, endIdx);
+
+	return res.json({ tours: paged, pagination: { page, pageSize, total, totalPages }, sortBy });
 }));
 
 export default router;

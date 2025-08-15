@@ -1,7 +1,7 @@
 import TelegramBot from 'node-telegram-bot-api';
 import { parseTravelRequest, generateResponse, detectTravelStyle } from '../../services/ai-travel-assistant';
 import { userProfiles, searchRequests, priorityProfiles } from '@shared/schema-v2';
-import { db } from '@/db';
+import { db } from '@db';
 import { eq } from 'drizzle-orm';
 import logger from '../../utils/logger';
 import { setUserState, getUserState, FSM_STATES } from '../fsm';
