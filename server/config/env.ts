@@ -5,6 +5,10 @@ const EnvSchema = z.object({
   PORT: z.string().optional(),
   APP_URL: z.string().url().optional(),
 
+  // Logging
+  LOG_LEVEL: z.enum(['error', 'warn', 'info', 'http', 'debug']).optional(),
+  LOG_TO_FILES: z.enum(['true', 'false']).optional(),
+
   // JWT
   JWT_ACCESS_SECRET: z.string().min(16).optional(),
   JWT_REFRESH_SECRET: z.string().min(16).optional(),
