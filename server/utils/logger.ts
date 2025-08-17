@@ -23,15 +23,21 @@ const colors = {
 // Tell winston about colors
 winston.addColors(colors);
 
-// Ensure logs directory exists
-const logsDir = path.join(process.cwd(), 'logs');
-try {
-  if (!fs.existsSync(logsDir)) {
-    fs.mkdirSync(logsDir, { recursive: true });
+const logToFiles = process.env.LOG_TO_FILES === 'true';
+
+// Ensure logs directory exists when using files
+let logsDir = path.join(process.cwd(), 'logs');
+if (logToFiles) {
+  try {
+    if (!fs.existsSync(logsDir)) {
+      fs.mkdirSync(logsDir, { recursive: true });
+    }
+  } catch (e) {
+    // If we cannot create logs directory, fallback to console-only
+    // eslint-disable-next-line no-console
+    console.error('Failed to ensure logs directory, using console only:', e);
+    logToFiles === false;
   }
-} catch (e) {
-  // If we cannot create logs directory, we'll fallback to console-only
-  // and proceed without throwing to avoid crashing the app at startup
 }
 
 // Define base log format (no color, used for files)
@@ -46,9 +52,9 @@ const baseFormat = winston.format.combine(
       }
       log += message;
       if (Object.keys(rest).length > 0) {
-        log += ` ${JSON.stringify(rest)}`;
+        log += ` ${JSON.stringify(rest)} `;
       }
-      return log;
+      return log.trim();
     }
   ),
 );
@@ -64,35 +70,37 @@ const transports: winston.transport[] = [
   }),
 ];
 
-// Attempt to add file transports safely
-try {
-  const errorFile = new winston.transports.File({
-    filename: path.join(logsDir, 'error.log'),
-    level: 'error',
-    maxsize: 5242880, // 5MB
-    maxFiles: 5,
-    format: baseFormat,
-  });
-  errorFile.on('error', (err) => {
-    // eslint-disable-next-line no-console
-    console.error('Logger error transport failed:', err);
-  });
-  transports.push(errorFile);
+// Optional file transports
+if (logToFiles) {
+  try {
+    const errorFile = new winston.transports.File({
+      filename: path.join(logsDir, 'error.log'),
+      level: 'error',
+      maxsize: 5242880, // 5MB
+      maxFiles: 5,
+      format: baseFormat,
+    });
+    errorFile.on('error', (err) => {
+      // eslint-disable-next-line no-console
+      console.error('Logger error transport failed:', err);
+    });
+    transports.push(errorFile);
 
-  const combinedFile = new winston.transports.File({
-    filename: path.join(logsDir, 'combined.log'),
-    maxsize: 5242880, // 5MB
-    maxFiles: 5,
-    format: baseFormat,
-  });
-  combinedFile.on('error', (err) => {
+    const combinedFile = new winston.transports.File({
+      filename: path.join(logsDir, 'combined.log'),
+      maxsize: 5242880, // 5MB
+      maxFiles: 5,
+      format: baseFormat,
+    });
+    combinedFile.on('error', (err) => {
+      // eslint-disable-next-line no-console
+      console.error('Logger combined transport failed:', err);
+    });
+    transports.push(combinedFile);
+  } catch (e) {
     // eslint-disable-next-line no-console
-    console.error('Logger combined transport failed:', err);
-  });
-  transports.push(combinedFile);
-} catch (e) {
-  // eslint-disable-next-line no-console
-  console.error('Failed to initialize file transports, continuing with console only:', e);
+    console.error('Failed to initialize file transports, continuing with console only:', e);
+  }
 }
 
 // Create the logger
@@ -124,24 +132,28 @@ export const aiLogger = logger.child({ service: 'ai' });
 
 // Handle exceptions and rejections (safely)
 try {
-  const exceptionsTransport = new winston.transports.File({ filename: path.join(logsDir, 'exceptions.log') });
-  exceptionsTransport.on('error', (err) => {
-    // eslint-disable-next-line no-console
-    console.error('Logger exceptions transport failed:', err);
-  });
-  logger.exceptions.handle(exceptionsTransport);
+  if (logToFiles) {
+    const exceptionsTransport = new winston.transports.File({ filename: path.join(logsDir, 'exceptions.log') });
+    exceptionsTransport.on('error', (err) => {
+      // eslint-disable-next-line no-console
+      console.error('Logger exceptions transport failed:', err);
+    });
+    logger.exceptions.handle(exceptionsTransport);
+  }
 } catch (e) {
   // eslint-disable-next-line no-console
   console.error('Failed to initialize exceptions transport:', e);
 }
 
 try {
-  const rejectionsTransport = new winston.transports.File({ filename: path.join(logsDir, 'rejections.log') });
-  rejectionsTransport.on('error', (err) => {
-    // eslint-disable-next-line no-console
-    console.error('Logger rejections transport failed:', err);
-  });
-  logger.rejections.handle(rejectionsTransport);
+  if (logToFiles) {
+    const rejectionsTransport = new winston.transports.File({ filename: path.join(logsDir, 'rejections.log') });
+    rejectionsTransport.on('error', (err) => {
+      // eslint-disable-next-line no-console
+      console.error('Logger rejections transport failed:', err);
+    });
+    logger.rejections.handle(rejectionsTransport);
+  }
 } catch (e) {
   // eslint-disable-next-line no-console
   console.error('Failed to initialize rejections transport:', e);

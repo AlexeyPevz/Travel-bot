@@ -109,7 +109,7 @@ function defaultKeyGenerator(req: Request): string {
   hash.update(req.get('accept-language') || '');
   
   // Include user ID if authenticated
-  const userId = (req as any).user?.id || 'anonymous';
+  const userId = (req as any).user?.userId || 'anonymous';
   hash.update(userId);
 
   return `cache:${req.baseUrl || req.path}:${hash.digest('hex')}`;

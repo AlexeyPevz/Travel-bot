@@ -207,7 +207,7 @@ console.log(state); // { state: 'open', failures: 5, lastFailureTime: ... }
 
 ```typescript
 // В server/index.ts
-import { errorHandler } from './utils/errors';
+import { errorHandler } from './middleware/errorHandler';
 
 // ... все маршруты ...
 

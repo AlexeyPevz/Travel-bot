@@ -34,25 +34,30 @@ const corsOptions = {
 
 export function setupSecurity(app: Express) {
   const csrfDisabled = process.env.DISABLE_CSRF === 'true';
+  const isProd = process.env.NODE_ENV === 'production';
   // Trust proxy - required for rate limiting and secure cookies behind reverse proxy
   app.set('trust proxy', 1);
 
   // Cookie parser - required for session and CSRF
   app.use(cookieParser(process.env.COOKIE_SECRET || crypto.randomBytes(32).toString('hex')));
 
-  // Session configuration
-  app.use(session({
+  // Session configuration (mount only for non-API routes)
+  const sessionMiddleware = session({
     secret: process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex'),
     resave: false,
     saveUninitialized: false,
     cookie: {
-      secure: process.env.NODE_ENV === 'production',
+      secure: isProd,
       httpOnly: true,
       maxAge: 24 * 60 * 60 * 1000, // 24 hours
       sameSite: 'strict',
     },
     name: 'sessionId',
-  }));
+  });
+  app.use((req, res, next) => {
+    if (req.path.startsWith('/api')) return next();
+    return (sessionMiddleware as any)(req, res, next);
+  });
 
   // Basic security headers
   app.use(helmet({
@@ -60,7 +65,9 @@ export function setupSecurity(app: Express) {
       directives: {
         defaultSrc: ["'self'"],
         styleSrc: ["'self'", "'unsafe-inline'"],
-        scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'", "https://telegram.org"],
+        scriptSrc: isProd
+          ? ["'self'", "https://telegram.org"]
+          : ["'self'", "'unsafe-inline'", "'unsafe-eval'", "https://telegram.org"],
         imgSrc: ["'self'", "data:", "https:", "blob:"],
         connectSrc: ["'self'", "https://api.telegram.org"],
         fontSrc: ["'self'", "https:", "data:"],
@@ -88,6 +95,7 @@ export function setupSecurity(app: Express) {
 
     if (allowedOrigins.includes(origin)) {
       res.setHeader('Access-Control-Allow-Origin', origin);
+      res.setHeader('Vary', 'Origin');
       res.setHeader('Access-Control-Allow-Credentials', 'true');
       res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
       res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-CSRF-Token');
@@ -128,7 +136,7 @@ export function setupSecurity(app: Express) {
       // Optionally set a non-HTTPOnly cookie for client debugging (not required)
       res.cookie('x-csrf-token', token, {
         httpOnly: false,
-        secure: process.env.NODE_ENV === 'production',
+        secure: isProd,
         sameSite: 'strict',
         maxAge: 3600000,
         domain: process.env.COOKIE_DOMAIN || undefined,

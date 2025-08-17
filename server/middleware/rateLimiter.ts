@@ -43,8 +43,8 @@ const createRateLimiter = (options: {
     skipSuccessfulRequests,
     handler: (req, res) => rateLimitHandler(req, res, windowMs, max),
     keyGenerator: keyGenerator || ((req) => {
-      // Используем IP адрес или user ID из JWT (когда будет реализован)
-      const userId = (req as any).user?.id;
+      // Используем IP адрес или user ID из JWT
+      const userId = (req as any).user?.userId as string | undefined;
       return userId ? `user:${userId}` : `ip:${req.ip}`;
     }),
     store: new RedisStore({
@@ -54,7 +54,7 @@ const createRateLimiter = (options: {
     }),
     skip: (req) => {
       // Пропускаем rate limiting для health check и метрик
-      return req.path === '/api/health' || req.path === '/metrics';
+      return req.path === '/health' || req.path === '/metrics' || req.path === '/api/health';
     }
   });
 };
@@ -97,7 +97,7 @@ export const aiLimiter = createRateLimiter({
   max: 10,
   keyGenerator: (req) => {
     // Для AI используем комбинацию user ID и IP
-    const userId = (req as any).user?.id;
+    const userId = (req as any).user?.userId as string | undefined;
     return userId ? `ai:user:${userId}` : `ai:ip:${req.ip}`;
   }
 });
@@ -119,13 +119,14 @@ export const dynamicRateLimiter = (req: Request, res: Response, next: Function) 
   const path = req.path;
 
   // Выбираем подходящий limiter на основе пути
-  if (path.startsWith('/api/auth')) {
+  if (path.startsWith('/auth')) {
+    // учитываем, что middleware смонтирован на '/api'
     return authLimiter(req, res, next);
   } else if (path.includes('/analyze-request')) {
     return aiLimiter(req, res, next);
   } else if (path.includes('/tours') || path.includes('/search')) {
     return searchLimiter(req, res, next);
-  } else if (path.startsWith('/webhook')) {
+  } else if (path.startsWith('/telegram/webhook') || path.startsWith('/api/telegram/webhook') || path.startsWith('/webhook')) {
     return webhookLimiter(req, res, next);
   } else {
     return apiLimiter(req, res, next);
